@@ -216,3 +216,36 @@ pyinstaller -F -n rd-burndown cli_entry.py
   - (3) 親子両方入力 → ルールに従いつつ 警告 を出す
 - 性能：50件規模での sync／snapshot 所要時間、ページング・差分同期の正当性
 - 冪等性：同日スナップショットの再実行で同値になること
+
+---
+
+## 10. 開発環境・テスト用Redmine
+
+### 10.1 Docker Compose による Redmine 起動
+
+```bash
+# コンテナ起動
+docker-compose up -d
+
+# 状態確認
+docker-compose ps
+
+# ログ確認
+docker-compose logs redmine
+
+# コンテナ停止
+docker-compose down
+```
+
+### 10.2 API アクセス方法
+
+開発環境では以下の方法でRedmine APIにアクセス可能：
+
+- **コンテナ名による内部アクセス**：`http://redmine:3000`
+
+```bash
+# API動作確認例
+curl -s "http://redmine:3000/projects.json" | jq .
+curl -s "http://redmine:3000/issue_statuses.json" | jq .
+curl -s "http://redmine:3000/issues.json" | jq .
+```
