@@ -1,19 +1,8 @@
 #!/bin/bash
 
-# Lambda in VPC Terraform開発環境セットアップスクリプト
-
 set -e
 
 npm install -g @anthropic-ai/claude-code
-
-# lambrollのインストール
-echo "📦 lambrollをインストール中..."
-if ! command -v lambroll &> /dev/null; then
-    go install github.com/fujiwara/lambroll/cmd/lambroll@latest
-    echo "✅ lambrollインストール完了"
-else
-    echo "✅ lambrollは既にインストールされています"
-fi
 
 # direnvのbashフック設定
 echo "🔧 direnvをbashにフック中..."
@@ -24,14 +13,17 @@ else
     echo "✅ direnv bashフックは既に設定されています"
 fi
 
-# pre-commitセットアップ
-echo "🔧 pre-commitをセットアップ中..."
+# uvとpre-commitセットアップ
+echo "🔧 uvとpre-commitをセットアップ中..."
+export PATH="$HOME/.local/bin:$PATH"
+if ! command -v uv &> /dev/null; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+fi
 uv tool install pre-commit
 pre-commit install
 
 # 動作確認
 echo "🧪 ツール動作確認中..."
 docker --version && echo "✅ Docker OK"
-lambroll --version && echo "✅ lambroll OK"
 
 echo "✅ post-createスクリプト完了"
