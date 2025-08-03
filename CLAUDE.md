@@ -29,15 +29,17 @@
 ### 3.1 データモデル（SQLite 概要）
 
 - `versions(id, project_id, name, start_date, due_date)`
-- `issues(id, project_id, version_id, parent_id, subject, status_name, estimated_hours, closed_on, updated_on, is_leaf, last_seen_at)`
+- `issues(id, project_id, version_id, parent_id, subject, status_name,
+  estimated_hours, closed_on, updated_on, is_leaf, last_seen_at)`
 - `issue_journals(issue_id, at, field, old, new)`
   - （estimated_hours／status_id／fixed_version_id など変更履歴）
-- `snapshots(date, version_id, scope_hours, remaining_hours, completed_hours, ideal_remaining_hours, v_avg, v_max, v_min)`
+- `snapshots(date, version_id, scope_hours, remaining_hours, completed_hours,
+  ideal_remaining_hours, v_avg, v_max, v_min)`
 - `meta(key, value)`（初期スコープ S0、最終スナップショット日 等）
 
 ### 3.2 ロールアップ規則（擬似コード）
 
-```
+```python
 effective_estimate(issue):
   if issue has children:
     if all children have non-null estimated_hours (recursively satisfied):
@@ -94,13 +96,15 @@ effective_estimate(issue):
 
 ### 5.1 代表コマンド
 
-```
+```bash
 rd-burndown init
 rd-burndown sync        --project <id|identifier> --version <id|name>
 rd-burndown snapshot    --project <...> --version <...> [--at YYYY-MM-DD]
-rd-burndown replay      --project <...> --version <...>   # 開始～終了まで全営業日を再生
+rd-burndown replay      --project <...> --version <...>
+# 開始～終了まで全営業日を再生
 rd-burndown export      --project <...> --version <...> --fmt csv|json > out.csv
-rd-burndown plot        --project <...> --version <...> --out sprint.png [--html sprint.html
+rd-burndown plot        --project <...> --version <...> --out sprint.png \
+  [--html sprint.html]
 ```
 
 ### 5.2 設定ファイル（rd-burndown.yaml）
@@ -134,7 +138,8 @@ velocity:
 output:
   show_burnup_scope: true
   chart:
-    backend: "plotly"     # "plotly" | "matplotlib"（配布容易性と好みで選択）
+    # "plotly" | "matplotlib"（配布容易性と好みで選択）
+    backend: "plotly"
     image_format: "png"    # png/svg
 ```
 
