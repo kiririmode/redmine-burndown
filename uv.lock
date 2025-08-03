@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.12'",
@@ -314,6 +314,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/15/dc/fd2d955884f45f852152d44f5ecf79de3cb58da0f995b6f6f9acfc80dd94/kaleido-1.0.0.tar.gz", hash = "sha256:502d8ba64737924efaf5e94c2736745bcc7c926e6cc535838be36c0fc06330bd", size = 49400, upload-time = "2025-06-19T15:50:39.357Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/28/0e/853df00cac4823eaa8f35114d0d0ad1e2ec6b8243ce4acf5f8ac5235c517/kaleido-1.0.0-py3-none-any.whl", hash = "sha256:a7e8bd95648378d2746f6c86084d419d15f95b1ec7bb0ec810289b7feb25b18d", size = 51479, upload-time = "2025-06-19T15:50:37.884Z" },
+]
+
+[[package]]
+name = "lizard"
+version = "1.17.31"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pathspec" },
+    { name = "pygments" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0b/c9/ef0a3a8df311938df2f15d3861073d3861bb2e32f43be85c3cf8f7f81ba8/lizard-1.17.31.tar.gz", hash = "sha256:af6b35d06bcc9718ff3db1ad7ce1f7645f2d8e07c2348e8873817f61d6592888", size = 75271, upload-time = "2025-05-25T09:21:43.13Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b6/25/f3b7a347aae3c1f36ef86b5dfc3f05af8ec44e096725f675280c83073b57/lizard-1.17.31-py2.py3-none-any.whl", hash = "sha256:e2a87b0a6be04c2db41a0708fc81ac7ef50694c92360233b7b81088a9695076f", size = 82126, upload-time = "2025-05-25T09:21:40.347Z" },
 ]
 
 [[package]]
@@ -906,6 +919,7 @@ build = [
 ]
 dev = [
     { name = "black" },
+    { name = "lizard" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -925,6 +939,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.24.0" },
     { name = "jpholiday", specifier = ">=0.1.8" },
     { name = "kaleido", specifier = ">=0.2.1" },
+    { name = "lizard", marker = "extra == 'dev'" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.5.0" },
     { name = "pandas", specifier = ">=2.0.0" },
     { name = "plotly", specifier = ">=5.15.0" },

@@ -1,7 +1,7 @@
 """Redmine API クライアント"""
 
 import json
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -50,11 +50,13 @@ class RedmineClient:
                 return {"text": response.text}
 
         except httpx.HTTPStatusError as e:
-            raise RedmineAPIError(f"HTTP {e.response.status_code}: {e.response.text}")
+            raise RedmineAPIError(
+                f"HTTP {e.response.status_code}: {e.response.text}"
+            ) from e
         except httpx.RequestError as e:
-            raise RedmineAPIError(f"Request failed: {str(e)}")
+            raise RedmineAPIError(f"Request failed: {str(e)}") from e
         except json.JSONDecodeError as e:
-            raise RedmineAPIError(f"Invalid JSON response: {str(e)}")
+            raise RedmineAPIError(f"Invalid JSON response: {str(e)}") from e
 
     def get_projects(self) -> dict[str, Any]:
         """プロジェクト一覧を取得"""
@@ -70,8 +72,8 @@ class RedmineClient:
 
     def get_issues(
         self,
-        project_id: Optional[str] = None,
-        version_id: Optional[str] = None,
+        project_id: str | None = None,
+        version_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> dict[str, Any]:

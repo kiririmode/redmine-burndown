@@ -1,6 +1,5 @@
 """疎通確認コマンド"""
 
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -16,11 +15,11 @@ console = Console()
 
 @check_command.command("connection")
 def check_connection(
-    config_path: Optional[str] = typer.Option(
+    config_path: str | None = typer.Option(
         None, "--config", "-c", help="設定ファイルのパス"
     ),
-    base_url: Optional[str] = typer.Option(None, "--url", help="Redmine ベースURL"),
-    api_key: Optional[str] = typer.Option(None, "--api-key", help="API キー"),
+    base_url: str | None = typer.Option(None, "--url", help="Redmine ベースURL"),
+    api_key: str | None = typer.Option(None, "--api-key", help="API キー"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="詳細な情報を表示"),
 ) -> None:
     """Redmine との疎通確認"""
@@ -117,7 +116,7 @@ def check_connection(
                 border_style="red",
             )
         )
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
     except Exception as e:
         console.print(
             Panel(
@@ -126,12 +125,12 @@ def check_connection(
                 border_style="red",
             )
         )
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @check_command.command("config")
 def check_config(
-    config_path: Optional[str] = typer.Option(
+    config_path: str | None = typer.Option(
         None, "--config", "-c", help="設定ファイルのパス"
     ),
 ) -> None:

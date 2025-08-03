@@ -1,12 +1,11 @@
 """RedmineClient のテスト"""
 
-import pytest
 from unittest.mock import Mock, patch
-import httpx
-import json
 
-from rd_burndown.api.client import RedmineClient, RedmineAPIError
-from rd_burndown.config import Config
+import httpx
+import pytest
+
+from rd_burndown.api.client import RedmineAPIError, RedmineClient
 
 
 class TestRedmineClient:

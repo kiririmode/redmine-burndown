@@ -2,7 +2,6 @@
 
 import os
 from pathlib import Path
-from typing import Optional
 
 import yaml
 from pydantic import BaseModel, Field
@@ -12,10 +11,10 @@ class RedmineConfig(BaseModel):
     """Redmine設定"""
 
     base_url: str = Field(default="http://redmine:3000")
-    api_key: Optional[str] = Field(default=None)
+    api_key: str | None = Field(default=None)
     timeout_sec: int = Field(default=15)
-    project_identifier: Optional[str] = Field(default=None)
-    version_name: Optional[str] = Field(default=None)
+    project_identifier: str | None = Field(default=None)
+    version_name: str | None = Field(default=None)
 
 
 class SprintConfig(BaseModel):
@@ -32,7 +31,7 @@ class Config(BaseModel):
     sprint: SprintConfig = Field(default_factory=SprintConfig)
 
 
-def load_config(config_path: Optional[str] = None) -> Config:
+def load_config(config_path: str | None = None) -> Config:
     """設定ファイルを読み込み"""
     if config_path is None:
         # デフォルトの設定ファイルパスを探索

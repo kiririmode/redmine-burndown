@@ -1,9 +1,7 @@
 """設定管理のテスト"""
 
-import pytest
 import os
-from unittest.mock import patch, mock_open
-from pathlib import Path
+from unittest.mock import mock_open, patch
 
 from rd_burndown.config.settings import Config, RedmineConfig, SprintConfig, load_config
 

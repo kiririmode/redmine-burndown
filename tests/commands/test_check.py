@@ -1,12 +1,11 @@
 """疎通確認コマンドのテスト"""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-from typer.testing import CliRunner
-from io import StringIO
+from unittest.mock import Mock, patch
 
-from rd_burndown.commands.check import check_command
+from typer.testing import CliRunner
+
 from rd_burndown.api.client import RedmineAPIError
+from rd_burndown.commands.check import check_command
 
 
 class TestCheckCommand:

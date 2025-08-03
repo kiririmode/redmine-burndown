@@ -1,10 +1,10 @@
 """pytest設定とフィクスチャ"""
 
-import pytest
-from unittest.mock import Mock
-from tempfile import NamedTemporaryFile
-import yaml
 from pathlib import Path
+from tempfile import NamedTemporaryFile
+
+import pytest
+import yaml
 
 from rd_burndown.config import Config, RedmineConfig, SprintConfig
 
