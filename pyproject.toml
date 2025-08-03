@@ -101,5 +101,6 @@ typeCheckingMode = "basic"
 
 [dependency-groups]
 dev = [
+    "lizard>=1.17.31",
     "pytest-cov>=6.2.1",
 ]

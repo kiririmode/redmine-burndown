@@ -31,6 +31,16 @@ repos:
         args: [-r, rd_burndown/]
         exclude: ^tests/
 
+  - repo: local
+    hooks:
+      - id: lizard-complexity
+        name: Lizard complexity check
+        entry: uv run lizard
+        language: system
+        files: '\.py$'
+        args: [--CCN, '10', rd_burndown/]
+        exclude: ^tests/
+
   - repo: https://github.com/igorshubovych/markdownlint-cli
     rev: v0.37.0
     hooks:

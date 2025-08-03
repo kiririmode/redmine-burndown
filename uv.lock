@@ -930,6 +930,7 @@ dev = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "lizard" },
     { name = "pytest-cov" },
 ]
 
@@ -958,7 +959,10 @@ requires-dist = [
 provides-extras = ["dev", "build"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest-cov", specifier = ">=6.2.1" }]
+dev = [
+    { name = "lizard", specifier = ">=1.17.31" },
+    { name = "pytest-cov", specifier = ">=6.2.1" },
+]
 
 [[package]]
 name = "requests"
