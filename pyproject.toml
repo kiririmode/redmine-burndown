@@ -53,7 +53,7 @@ target-version = "py311"
 line-length = 88
 select = [
     "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings  
+    "W",   # pycodestyle warnings
     "F",   # pyflakes
     "I",   # isort
     "B",   # flake8-bugbear
@@ -87,6 +87,17 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "--cov=rd_burndown --cov-report=term-missing"
+
+[tool.pyright]
+pythonVersion = "3.11"
+pythonPlatform = "Linux"
+venvPath = "."
+venv = ".venv"
+include = ["rd_burndown", "tests"]
+exclude = [".venv", "**/__pycache__"]
+reportMissingImports = true
+reportMissingTypeStubs = false
+typeCheckingMode = "basic"
 
 [dependency-groups]
 dev = [
