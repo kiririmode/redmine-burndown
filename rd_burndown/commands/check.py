@@ -7,10 +7,101 @@ from rich.panel import Panel
 from rich.table import Table
 
 from ..api import RedmineAPIError, RedmineClient
-from ..config import load_config
+from ..config import Config, load_config
 
 check_command = typer.Typer()
 console = Console()
+
+
+def _load_and_override_config(
+    config_path: str | None, base_url: str | None, api_key: str | None
+) -> Config:
+    """設定を読み込み、コマンドライン引数で上書き"""
+    config = load_config(config_path)
+
+    if base_url:
+        config.redmine.base_url = base_url
+    if api_key:
+        config.redmine.api_key = api_key
+
+    return config
+
+
+def _print_connection_header(config: Config) -> None:
+    """接続確認のヘッダー情報を表示"""
+    console.print("[bold blue]Redmine 疎通確認[/bold blue]")
+    console.print(f"URL: {config.redmine.base_url}")
+    console.print(f"API Key: {'設定済み' if config.redmine.api_key else '未設定'}")
+    console.print()
+
+
+def _display_projects_info(projects: list, projects_count: int, verbose: bool) -> None:
+    """プロジェクト情報を表示"""
+    console.print(f"\n[bold]プロジェクト数:[/bold] {projects_count}")
+
+    if not (verbose and projects):
+        return
+
+    project_table = Table(title="プロジェクト一覧")
+    project_table.add_column("ID", style="yellow")
+    project_table.add_column("識別子", style="blue")
+    project_table.add_column("名前", style="green")
+    project_table.add_column("説明")
+
+    for project in projects:
+        description = project.get("description", "")
+        truncated_desc = description[:50] + ("..." if len(description) > 50 else "")
+        project_table.add_row(
+            str(project.get("id", "")),
+            project.get("identifier", ""),
+            project.get("name", ""),
+            truncated_desc,
+        )
+
+    console.print(project_table)
+
+
+def _display_statuses_info(statuses: list, verbose: bool) -> None:
+    """ステータス情報を表示"""
+    console.print(f"\n[bold]課題ステータス数:[/bold] {len(statuses)}")
+
+    if not (verbose and statuses):
+        return
+
+    status_table = Table(title="課題ステータス一覧")
+    status_table.add_column("ID", style="yellow")
+    status_table.add_column("名前", style="blue")
+    status_table.add_column("完了", style="green")
+
+    for status in statuses:
+        status_table.add_row(
+            str(status.get("id", "")),
+            status.get("name", ""),
+            "✓" if status.get("is_closed", False) else "",
+        )
+
+    console.print(status_table)
+
+
+def _handle_connection_error(error: Exception) -> None:
+    """接続エラーを処理"""
+    if isinstance(error, RedmineAPIError):
+        console.print(
+            Panel(
+                f"[bold red]✗ API Error: {str(error)}[/bold red]",
+                title="接続結果",
+                border_style="red",
+            )
+        )
+    else:
+        console.print(
+            Panel(
+                f"[bold red]✗ Unexpected Error: {str(error)}[/bold red]",
+                title="接続結果",
+                border_style="red",
+            )
+        )
+    raise typer.Exit(1) from error
 
 
 @check_command.command("connection")
@@ -24,19 +115,8 @@ def check_connection(
 ) -> None:
     """Redmine との疎通確認"""
 
-    # 設定を読み込み
-    config = load_config(config_path)
-
-    # コマンドライン引数で設定を上書き
-    if base_url:
-        config.redmine.base_url = base_url
-    if api_key:
-        config.redmine.api_key = api_key
-
-    console.print("[bold blue]Redmine 疎通確認[/bold blue]")
-    console.print(f"URL: {config.redmine.base_url}")
-    console.print(f"API Key: {'設定済み' if config.redmine.api_key else '未設定'}")
-    console.print()
+    config = _load_and_override_config(config_path, base_url, api_key)
+    _print_connection_header(config)
 
     try:
         with RedmineClient(config) as client:
@@ -51,53 +131,10 @@ def check_connection(
                     )
                 )
 
-                # プロジェクト情報を表示
-                projects = result["projects"]
-                console.print(
-                    f"\n[bold]プロジェクト数:[/bold] {result['projects_count']}"
+                _display_projects_info(
+                    result["projects"], result["projects_count"], verbose
                 )
-
-                if verbose and projects:
-                    project_table = Table(title="プロジェクト一覧")
-                    project_table.add_column("ID", style="yellow")
-                    project_table.add_column("識別子", style="blue")
-                    project_table.add_column("名前", style="green")
-                    project_table.add_column("説明")
-
-                    for project in projects:
-                        project_table.add_row(
-                            str(project.get("id", "")),
-                            project.get("identifier", ""),
-                            project.get("name", ""),
-                            project.get("description", "")[:50]
-                            + (
-                                "..."
-                                if len(project.get("description", "")) > 50
-                                else ""
-                            ),
-                        )
-
-                    console.print(project_table)
-
-                # ステータス情報を表示
-                statuses = result["statuses"]
-                console.print(f"\n[bold]課題ステータス数:[/bold] {len(statuses)}")
-
-                if verbose and statuses:
-                    status_table = Table(title="課題ステータス一覧")
-                    status_table.add_column("ID", style="yellow")
-                    status_table.add_column("名前", style="blue")
-                    status_table.add_column("完了", style="green")
-
-                    for status in statuses:
-                        status_table.add_row(
-                            str(status.get("id", "")),
-                            status.get("name", ""),
-                            "✓" if status.get("is_closed", False) else "",
-                        )
-
-                    console.print(status_table)
-
+                _display_statuses_info(result["statuses"], verbose)
             else:
                 console.print(
                     Panel(
@@ -108,24 +145,8 @@ def check_connection(
                 )
                 raise typer.Exit(1)
 
-    except RedmineAPIError as e:
-        console.print(
-            Panel(
-                f"[bold red]✗ API Error: {str(e)}[/bold red]",
-                title="接続結果",
-                border_style="red",
-            )
-        )
-        raise typer.Exit(1) from e
-    except Exception as e:
-        console.print(
-            Panel(
-                f"[bold red]✗ Unexpected Error: {str(e)}[/bold red]",
-                title="接続結果",
-                border_style="red",
-            )
-        )
-        raise typer.Exit(1) from e
+    except (RedmineAPIError, Exception) as e:
+        _handle_connection_error(e)
 
 
 @check_command.command("config")
