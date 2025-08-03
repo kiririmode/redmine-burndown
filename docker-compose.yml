@@ -1,0 +1,46 @@
+services:
+  redmine-db:
+    image: postgres:15-alpine
+    container_name: redmine-db
+    environment:
+      POSTGRES_DB: redmine
+      POSTGRES_USER: redmine
+      POSTGRES_PASSWORD: redmine_password
+    volumes:
+      - redmine_db_data:/var/lib/postgresql/data
+    networks:
+      - redmine-network
+    restart: unless-stopped
+
+  redmine:
+    image: redmine:5.1
+    container_name: redmine
+    environment:
+      REDMINE_DB_POSTGRES: redmine-db
+      REDMINE_DB_DATABASE: redmine
+      REDMINE_DB_USERNAME: redmine
+      REDMINE_DB_PASSWORD: redmine_password
+      REDMINE_SECRET_KEY_BASE: supersecretkey12345678901234567890
+    ports:
+      - "3000:3000"
+    volumes:
+      - redmine_files:/usr/src/redmine/files
+      - redmine_plugins:/usr/src/redmine/plugins
+      - redmine_themes:/usr/src/redmine/public/themes
+    depends_on:
+      - redmine-db
+    networks:
+      - redmine-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  redmine_db_data:
+  redmine_files:
+  redmine_plugins:
+  redmine_themes:
+
+networks:
+  redmine-network:
+    driver: bridge
