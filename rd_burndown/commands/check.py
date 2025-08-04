@@ -34,52 +34,66 @@ def _print_connection_header(config: Config) -> None:
     console.print()
 
 
-def _display_projects_info(projects: list, projects_count: int, verbose: bool) -> None:
-    """プロジェクト情報を表示"""
-    console.print(f"\n[bold]プロジェクト数:[/bold] {projects_count}")
+def _create_info_table(
+    title: str, items: list, columns: list[dict[str, str]], count: int | None = None
+) -> None:
+    """情報テーブルを作成・表示する共通関数"""
+    if count is not None:
+        console.print(f"\n[bold]{title}数:[/bold] {count}")
 
-    if not (verbose and projects):
+    if not items:
         return
 
-    project_table = Table(title="プロジェクト一覧")
-    project_table.add_column("ID", style="yellow")
-    project_table.add_column("識別子", style="blue")
-    project_table.add_column("名前", style="green")
-    project_table.add_column("説明")
+    table = Table(title=f"{title}一覧")
+    for col in columns:
+        table.add_column(col["name"], style=col.get("style", ""))
 
-    for project in projects:
-        description = project.get("description", "")
-        truncated_desc = description[:50] + ("..." if len(description) > 50 else "")
-        project_table.add_row(
-            str(project.get("id", "")),
-            project.get("identifier", ""),
-            project.get("name", ""),
-            truncated_desc,
-        )
+    for item in items:
+        row = []
+        for col in columns:
+            value = item.get(col["key"], "")
+            if col.get("truncate"):
+                value = value[:50] + ("..." if len(value) > 50 else "")
+            if col.get("transform"):
+                value = col["transform"](value)
+            row.append(str(value))
+        table.add_row(*row)
 
-    console.print(project_table)
+    console.print(table)
+
+
+def _display_projects_info(projects: list, projects_count: int, verbose: bool) -> None:
+    """プロジェクト情報を表示"""
+    if not verbose:
+        console.print(f"\n[bold]プロジェクト数:[/bold] {projects_count}")
+        return
+
+    columns = [
+        {"name": "ID", "key": "id", "style": "yellow"},
+        {"name": "識別子", "key": "identifier", "style": "blue"},
+        {"name": "名前", "key": "name", "style": "green"},
+        {"name": "説明", "key": "description", "truncate": True},
+    ]
+    _create_info_table("プロジェクト", projects, columns, projects_count)
 
 
 def _display_statuses_info(statuses: list, verbose: bool) -> None:
     """ステータス情報を表示"""
-    console.print(f"\n[bold]課題ステータス数:[/bold] {len(statuses)}")
-
-    if not (verbose and statuses):
+    if not verbose:
+        console.print(f"\n[bold]課題ステータス数:[/bold] {len(statuses)}")
         return
 
-    status_table = Table(title="課題ステータス一覧")
-    status_table.add_column("ID", style="yellow")
-    status_table.add_column("名前", style="blue")
-    status_table.add_column("完了", style="green")
-
-    for status in statuses:
-        status_table.add_row(
-            str(status.get("id", "")),
-            status.get("name", ""),
-            "✓" if status.get("is_closed", False) else "",
-        )
-
-    console.print(status_table)
+    columns = [
+        {"name": "ID", "key": "id", "style": "yellow"},
+        {"name": "名前", "key": "name", "style": "blue"},
+        {
+            "name": "完了",
+            "key": "is_closed",
+            "style": "green",
+            "transform": lambda x: "✓" if x else "",
+        },
+    ]
+    _create_info_table("課題ステータス", statuses, columns, len(statuses))
 
 
 def _handle_connection_error(error: Exception) -> None:
