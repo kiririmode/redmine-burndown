@@ -47,6 +47,12 @@ repos:
         files: '\.py$'
         args: [--CCN, '10', rd_burndown/]
         exclude: ^tests/
+      - id: code-similarity
+        name: Code similarity check (refactoring advisory)
+        entry: python scripts/check_code_similarity.py
+        language: system
+        pass_filenames: false
+        always_run: true
       - id: test-coverage
         name: Test coverage check (85% minimum)
         entry: uv run pytest
