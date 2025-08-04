@@ -1,6 +1,7 @@
 """データベースモデル定義"""
 
 import sqlite3
+from abc import ABC
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -146,140 +147,117 @@ class DatabaseManager:
             conn.commit()
 
 
-class IssueModel:
-    """課題データのCRUD操作"""
+class BaseModel(ABC):
+    """データベース操作の基底クラス"""
 
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
+
+    def _execute_insert_or_replace(
+        self, table: str, columns: list[str], data: dict[str, Any]
+    ) -> None:
+        """INSERT OR REPLACE文の共通実行"""
+        placeholders = ", ".join(["?" for _ in columns])
+        sql = f"INSERT OR REPLACE INTO {table} ({', '.join(columns)}) VALUES ({placeholders})"
+
+        values = tuple(data.get(col) for col in columns)
+
+        with self.db_manager.get_connection() as conn:
+            conn.execute(sql, values)
+            conn.commit()
+
+    def _execute_select_by_version(
+        self,
+        table: str,
+        version_id: int,
+        additional_where: str = "",
+        order_by: str = "",
+    ) -> list[sqlite3.Row]:
+        """version_idでSELECTする共通処理"""
+        where_clause = f"WHERE version_id = ?{' AND ' + additional_where if additional_where else ''}"
+        order_clause = f"ORDER BY {order_by}" if order_by else ""
+        sql = f"SELECT * FROM {table} {where_clause} {order_clause}"
+
+        with self.db_manager.get_connection() as conn:
+            cursor = conn.execute(sql, (version_id,))
+            return cursor.fetchall()
+
+
+class IssueModel(BaseModel):
+    """課題データのCRUD操作"""
 
     def upsert_issue(self, issue_data: dict[str, Any]) -> None:
         """課題データを挿入または更新"""
-        with self.db_manager.get_connection() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO issues (
-                    id, project_id, version_id, parent_id, subject, status_name,
-                    estimated_hours, closed_on, updated_on, is_leaf,
-                    assigned_to_id, assigned_to_name, last_seen_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    issue_data["id"],
-                    issue_data["project_id"],
-                    issue_data.get("version_id"),
-                    issue_data.get("parent_id"),
-                    issue_data["subject"],
-                    issue_data["status_name"],
-                    issue_data.get("estimated_hours"),
-                    issue_data.get("closed_on"),
-                    issue_data.get("updated_on"),
-                    issue_data.get("is_leaf", 1),
-                    issue_data.get("assigned_to_id"),
-                    issue_data.get("assigned_to_name"),
-                    issue_data.get("last_seen_at"),
-                ),
-            )
-            conn.commit()
+        columns = [
+            "id",
+            "project_id",
+            "version_id",
+            "parent_id",
+            "subject",
+            "status_name",
+            "estimated_hours",
+            "closed_on",
+            "updated_on",
+            "is_leaf",
+            "assigned_to_id",
+            "assigned_to_name",
+            "last_seen_at",
+        ]
+        # is_leafのデフォルト値を設定
+        if "is_leaf" not in issue_data:
+            issue_data["is_leaf"] = 1
+        self._execute_insert_or_replace("issues", columns, issue_data)
 
     def get_issues_by_version(self, version_id: int) -> list[sqlite3.Row]:
         """バージョンIDで課題を取得"""
-        with self.db_manager.get_connection() as conn:
-            cursor = conn.execute(
-                """
-                SELECT * FROM issues WHERE version_id = ? ORDER BY id
-            """,
-                (version_id,),
-            )
-            return cursor.fetchall()
+        return self._execute_select_by_version("issues", version_id, order_by="id")
 
     def get_root_issues_by_version(self, version_id: int) -> list[sqlite3.Row]:
         """バージョンIDでルート課題（親なし）を取得"""
-        with self.db_manager.get_connection() as conn:
-            cursor = conn.execute(
-                """
-                SELECT * FROM issues
-                WHERE version_id = ? AND parent_id IS NULL
-                ORDER BY id
-            """,
-                (version_id,),
-            )
-            return cursor.fetchall()
+        return self._execute_select_by_version(
+            "issues", version_id, additional_where="parent_id IS NULL", order_by="id"
+        )
 
 
-class SnapshotModel:
+class SnapshotModel(BaseModel):
     """スナップショットデータのCRUD操作"""
-
-    def __init__(self, db_manager: DatabaseManager):
-        self.db_manager = db_manager
 
     def save_snapshot(self, snapshot_data: dict[str, Any]) -> None:
         """全体スナップショットを保存"""
-        with self.db_manager.get_connection() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO snapshots (
-                    date, version_id, scope_hours, remaining_hours, completed_hours,
-                    ideal_remaining_hours, v_avg, v_max, v_min
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    snapshot_data["date"],
-                    snapshot_data["version_id"],
-                    snapshot_data["scope_hours"],
-                    snapshot_data["remaining_hours"],
-                    snapshot_data["completed_hours"],
-                    snapshot_data["ideal_remaining_hours"],
-                    snapshot_data["v_avg"],
-                    snapshot_data["v_max"],
-                    snapshot_data["v_min"],
-                ),
-            )
-            conn.commit()
+        columns = [
+            "date",
+            "version_id",
+            "scope_hours",
+            "remaining_hours",
+            "completed_hours",
+            "ideal_remaining_hours",
+            "v_avg",
+            "v_max",
+            "v_min",
+        ]
+        self._execute_insert_or_replace("snapshots", columns, snapshot_data)
 
     def save_assignee_snapshot(self, assignee_snapshot_data: dict[str, Any]) -> None:
         """担当者別スナップショットを保存"""
-        with self.db_manager.get_connection() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO assignee_snapshots (
-                    date, version_id, assigned_to_id, assigned_to_name,
-                    scope_hours, remaining_hours, completed_hours
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    assignee_snapshot_data["date"],
-                    assignee_snapshot_data["version_id"],
-                    assignee_snapshot_data.get("assigned_to_id"),
-                    assignee_snapshot_data.get("assigned_to_name"),
-                    assignee_snapshot_data["scope_hours"],
-                    assignee_snapshot_data["remaining_hours"],
-                    assignee_snapshot_data["completed_hours"],
-                ),
-            )
-            conn.commit()
+        columns = [
+            "date",
+            "version_id",
+            "assigned_to_id",
+            "assigned_to_name",
+            "scope_hours",
+            "remaining_hours",
+            "completed_hours",
+        ]
+        self._execute_insert_or_replace(
+            "assignee_snapshots", columns, assignee_snapshot_data
+        )
 
     def get_snapshots_by_version(self, version_id: int) -> list[sqlite3.Row]:
         """バージョンIDでスナップショットを取得"""
-        with self.db_manager.get_connection() as conn:
-            cursor = conn.execute(
-                """
-                SELECT * FROM snapshots
-                WHERE version_id = ?
-                ORDER BY date
-            """,
-                (version_id,),
-            )
-            return cursor.fetchall()
+        return self._execute_select_by_version("snapshots", version_id, order_by="date")
 
     def get_assignee_snapshots_by_version(self, version_id: int) -> list[sqlite3.Row]:
         """バージョンIDで担当者別スナップショットを取得"""
-        with self.db_manager.get_connection() as conn:
-            cursor = conn.execute(
-                """
-                SELECT * FROM assignee_snapshots
-                WHERE version_id = ?
-                ORDER BY date, assigned_to_id
-            """,
-                (version_id,),
-            )
-            return cursor.fetchall()
+        return self._execute_select_by_version(
+            "assignee_snapshots", version_id, order_by="date, assigned_to_id"
+        )
