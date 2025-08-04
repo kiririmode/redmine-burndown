@@ -9,7 +9,8 @@
     "ghcr.io/devcontainers/features/go:1": {
       "version": "latest"
     },
-    "ghcr.io/devcontainers-extra/features/direnv:1": {}
+    "ghcr.io/devcontainers-extra/features/direnv:1": {},
+    "ghcr.io/devcontainers/features/rust:1.5.0": {}
   },
   "remoteUser": "vscode",
   "postCreateCommand": "bash .devcontainer/post-create.sh",

@@ -22,6 +22,10 @@ fi
 uv tool install pre-commit
 pre-commit install
 
+# Install similarity-py for code similarity detection and refactoring
+echo "🔧 similarity-pyをインストール中..."
+cargo install similarity-py
+
 # 動作確認
 echo "🧪 ツール動作確認中..."
 docker --version && echo "✅ Docker OK"
