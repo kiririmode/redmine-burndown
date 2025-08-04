@@ -1,6 +1,5 @@
 """疎通確認コマンド"""
 
-
 import typer
 from rich.console import Console
 from rich.panel import Panel

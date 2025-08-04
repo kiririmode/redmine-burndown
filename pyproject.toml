@@ -86,7 +86,29 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "--cov=rd_burndown --cov-report=term-missing"
+addopts = "--cov=rd_burndown --cov-report=term-missing --cov-fail-under=85"
+
+[tool.coverage.run]
+source = ["rd_burndown"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+fail_under = 85
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+skip_covered = false
+skip_empty = true
+
+[tool.coverage.html]
+directory = "htmlcov"
 
 [tool.pyright]
 pythonVersion = "3.11"
@@ -101,6 +123,7 @@ typeCheckingMode = "basic"
 
 [dependency-groups]
 dev = [
+    "detect-secrets>=1.5.0",
     "lizard>=1.17.31",
     "pytest-cov>=6.2.1",
 ]

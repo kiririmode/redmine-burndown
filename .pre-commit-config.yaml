@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
+    rev: v5.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -12,24 +12,31 @@ repos:
       - id: debug-statements
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.6
+    rev: v0.12.7
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
 
   - repo: https://github.com/RobertCraigie/pyright-python
-    rev: v1.1.338
+    rev: v1.1.403
     hooks:
       - id: pyright
 
 
   - repo: https://github.com/pycqa/bandit
-    rev: 1.7.5
+    rev: 1.8.6
     hooks:
       - id: bandit
         args: [-r, rd_burndown/]
         exclude: ^tests/
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: [--baseline, .secrets.baseline]
+        exclude: ^(\.devcontainer/|tests/fixtures/|\.venv/|\.pytest_cache/|\.ruff_cache/|htmlcov/)
 
   - repo: local
     hooks:
@@ -40,9 +47,15 @@ repos:
         files: '\.py$'
         args: [--CCN, '10', rd_burndown/]
         exclude: ^tests/
+      - id: test-coverage
+        name: Test coverage check (85% minimum)
+        entry: uv run pytest
+        language: system
+        pass_filenames: false
+        args: [--cov=rd_burndown, --cov-report=term-missing, --cov-fail-under=85]
 
   - repo: https://github.com/igorshubovych/markdownlint-cli
-    rev: v0.37.0
+    rev: v0.45.0
     hooks:
       - id: markdownlint
         args: [--fix]

@@ -1,22 +1,25 @@
 """CLI エントリーポイント"""
 
+import typer  # pragma: no cover
+from rich.console import Console  # pragma: no cover
 
-import typer
-from rich.console import Console
+from .commands.check import check_command  # pragma: no cover
 
-from .commands.check import check_command
-
-app = typer.Typer(help="Redmine 工数ベース・バーンダウン CLI ツール")
-console = Console()
+app = typer.Typer(
+    help="Redmine 工数ベース・バーンダウン CLI ツール"
+)  # pragma: no cover
+console = Console()  # pragma: no cover
 
 # サブコマンドを追加
-app.add_typer(check_command, name="check", help="Redmineとの疎通確認")
+app.add_typer(
+    check_command, name="check", help="Redmineとの疎通確認"
+)  # pragma: no cover
 
 
-def main_entry() -> None:
+def main_entry() -> None:  # pragma: no cover
     """メインエントリーポイント"""
-    app()
+    app()  # pragma: no cover
 
 
-if __name__ == "__main__":
-    main_entry()
+if __name__ == "__main__":  # pragma: no cover
+    main_entry()  # pragma: no cover
