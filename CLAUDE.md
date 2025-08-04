@@ -8,6 +8,7 @@
   - 理想線（初期コミット基準、営業日均等減）
   - スコープ総量（任意で重ね表示）
   - 速度シナリオ線：これまでのペースから算出した 平均ベロシティ／最大ベロシティ／最小ベロシティ を適用した将来の残工数予測
+- **担当者別負荷分析**：誰にどのくらいの工数負荷がかかっているかを日次で集計・可視化する。
 - 実装形態は CLI ツール。Redmine REST API からデータを取得し、ローカルDB（SQLite）にスナップショットを蓄積。
 - 配布は PyInstaller による単一実行ファイル（exe） を想定。
 
@@ -30,11 +31,17 @@
 
 - `versions(id, project_id, name, start_date, due_date)`
 - `issues(id, project_id, version_id, parent_id, subject, status_name,
-  estimated_hours, closed_on, updated_on, is_leaf, last_seen_at)`
+  estimated_hours, closed_on, updated_on, is_leaf, last_seen_at,
+  assigned_to_id, assigned_to_name)`
+  - **assigned_to_id**: 担当者のRedmine内部ID（NULL可）
+  - **assigned_to_name**: 担当者名（表示用、NULL可）
 - `issue_journals(issue_id, at, field, old, new)`
-  - （estimated_hours／status_id／fixed_version_id など変更履歴）
+  - （estimated_hours／status_id／fixed_version_id／assigned_to_id など変更履歴）
 - `snapshots(date, version_id, scope_hours, remaining_hours, completed_hours,
   ideal_remaining_hours, v_avg, v_max, v_min)`
+- `assignee_snapshots(date, version_id, assigned_to_id, assigned_to_name,
+  scope_hours, remaining_hours, completed_hours)`
+  - **担当者別の日次スナップショット**：assigned_to_id=NULL は未アサイン課題
 - `meta(key, value)`（初期スコープ S0、最終スナップショット日 等）
 
 ### 3.2 ロールアップ規則（擬似コード）
@@ -55,6 +62,8 @@ effective_estimate(issue):
 
 ### 3.3 スナップショット指標（各日 23:59 JST の「終値」）
 
+#### 3.3.1 全体指標（既存）
+
 - スコープ総量 scope_hours：当日時点で Version に属する全ルート課題の effective_estimate 合計
 - 残工数 remaining_hours：同上のうち 完了でない 課題の合計
 - 完了工数 completed_hours：scope_hours - remaining_hours
@@ -64,6 +73,17 @@ effective_estimate(issue):
 - 日次バーン量（当日） burn(d)：
   - スコープ変動の影響を除くため、
   - burn(d) = max(0, (remaining(d-1) - remaining(d)) - (scope(d) - scope(d-1)))
+
+#### 3.3.2 担当者別指標（新規）
+
+- **担当者別スコープ** assignee_scope_hours(assignee, d)：
+  - 担当者別の effective_estimate 合計（親子ルールは全体と同一）
+- **担当者別残工数** assignee_remaining_hours(assignee, d)：
+  - 担当者別の未完了課題工数合計
+- **担当者別完了工数** assignee_completed_hours(assignee, d)：
+  - assignee_scope_hours - assignee_remaining_hours
+- **未アサイン課題**：assigned_to_id=NULL として別途集計
+- **担当変更の扱い**：変更日に旧担当→新担当へ工数移管として記録
 
 ### 3.4 ベロシティ定義（「これまでのペース」）
 
@@ -80,6 +100,8 @@ effective_estimate(issue):
 
 ## 4. 可視化（チャート仕様）
 
+### 4.1 メインバーンダウンチャート
+
 - 1枚のチャートに重ね描画
   1. 実績バーンダウン（残工数） … 折れ線
   2. 理想線 … 破線
@@ -89,6 +111,15 @@ effective_estimate(issue):
   - x 軸は営業日（カレンダー日ではなく）でプロット（祝日・週末は欠番）
   - 途中の**スコープ変動（Δh）**はポイント注記（+△h/-△h）
   - 予測完了日（各シナリオ）をツールチップまたは凡例に表示
+
+### 4.2 担当者別負荷チャート（新規）
+
+- **積み上げ面グラフ** または **複数線グラフ** で担当者別残工数を表示
+- 各担当者を異なる色で区別、未アサイン課題も含む
+- y軸：残工数（時間）、x軸：営業日
+- ツールチップ：担当者名、当日残工数、スコープ変動
+- **上位N名表示**：工数上位の担当者のみ表示（設定可能、デフォルト10名）
+- **個別担当者フィルタ**：特定担当者のみハイライト表示
 
 ---
 
@@ -104,7 +135,9 @@ rd-burndown replay      --project <...> --version <...>
 # 開始～終了まで全営業日を再生
 rd-burndown export      --project <...> --version <...> --fmt csv|json > out.csv
 rd-burndown plot        --project <...> --version <...> --out sprint.png \
-  [--html sprint.html]
+  [--html sprint.html] [--by-assignee] [--assignee-chart assignee_load.png]
+# --by-assignee: 担当者別チャートも生成
+# --assignee-chart: 担当者別負荷チャートファイル名
 ```
 
 ### 5.2 設定ファイル（rd-burndown.yaml）
@@ -137,6 +170,11 @@ velocity:
 
 output:
   show_burnup_scope: true
+  assignee:
+    enabled: true              # 担当者別集計を有効にする
+    top_n_display: 10          # 上位N名のみチャート表示
+    include_unassigned: true   # 未アサイン課題を含める
+    chart_type: "stacked_area" # "stacked_area" | "multi_line"
   chart:
     # "plotly" | "matplotlib"（配布容易性と好みで選択）
     backend: "plotly"
@@ -146,10 +184,14 @@ output:
 ## 6. Redmine API 取得戦略（5.x）
 
 - Issues：GET /issues.json?project_id=...&fixed_version_id=...&status_id=*&include=journals,children&limit=100&offset=...
+  - **assigned_to 情報取得**：レスポンスの `assigned_to.id` と `assigned_to.name` を抽出
 - ページング対応、updated_on で差分同期（set_filter=1 を併用）
-- journals.details から estimated_hours／status_id／fixed_version_id の変更を抽出
+- journals.details から estimated_hours／status_id／fixed_version_id／
+  **assigned_to_id** の変更を抽出
 - Versions：GET /projects/:id/versions.json（start_date/due_date）
 - Statuses：GET /issue_statuses.json（表示用途。判定は設定ファイル優先）
+- **Users（任意）**：GET /users.json
+  - 担当者名の正規化、アクティブ状態確認用
 - エラーハンドリング：429/5xx は指数バックオフ／再試行。ネットワーク切断時は部分同期をロールバック。
 
 ## 7. アーキテクチャ / 実装
@@ -171,9 +213,9 @@ output:
 ### 7.2 処理フロー
 
 1. sync：Version/Issues/Statuses を取得 → issues と issue_journals を更新
-2. snapshot：当日23:59 JST基準で as-of 集計 → snapshots に保存
+2. snapshot：当日23:59 JST基準で as-of 集計 → snapshots と **assignee_snapshots** に保存
 3. velocity 算出：当スプリントの burn(d) から V_avg/V_max/V_min を計算
-4. plot/export：CSV/JSON と PNG/HTML を出力
+4. plot/export：CSV/JSON と PNG/HTML を出力（**担当者別チャートを含む**）
 
 ### 7.3 ベロシティ計算の実装ポイント
 
