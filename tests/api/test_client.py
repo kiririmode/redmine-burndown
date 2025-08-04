@@ -159,3 +159,73 @@ class TestRedmineClient:
         assert result["projects_count"] == 0
         assert result["projects"] == []
         assert result["statuses"] == []
+
+    @patch("httpx.Client")
+    def test_get_issues_with_journals(self, mock_httpx_client, mock_config):
+        """ジャーナル付き課題取得のテスト"""
+        mock_client_instance = Mock()
+        mock_response = Mock()
+        mock_response.json.return_value = {"issues": []}
+        mock_response.headers = {"content-type": "application/json"}
+        mock_client_instance.request.return_value = mock_response
+        mock_httpx_client.return_value = mock_client_instance
+
+        client = RedmineClient(mock_config)
+        result = client.get_issues(
+            project_id="1",
+            version_id="10",
+            include_journals=True,
+            include_children=True,
+            updated_on="2025-01-01T00:00:00Z",
+        )
+
+        assert result == {"issues": []}
+        expected_params = {
+            "limit": 100,
+            "offset": 0,
+            "status_id": "*",
+            "project_id": "1",
+            "fixed_version_id": "10",
+            "updated_on": ">=2025-01-01T00:00:00Z",
+            "set_filter": "1",
+            "include": "journals,children",
+        }
+        mock_client_instance.request.assert_called_once_with(
+            "GET", "/issues.json", params=expected_params
+        )
+
+    @patch("httpx.Client")
+    def test_get_issue(self, mock_httpx_client, mock_config):
+        """単一課題取得のテスト"""
+        mock_client_instance = Mock()
+        mock_response = Mock()
+        mock_response.json.return_value = {"issue": {}}
+        mock_response.headers = {"content-type": "application/json"}
+        mock_client_instance.request.return_value = mock_response
+        mock_httpx_client.return_value = mock_client_instance
+
+        client = RedmineClient(mock_config)
+        result = client.get_issue(123, include_journals=True)
+
+        assert result == {"issue": {}}
+        mock_client_instance.request.assert_called_once_with(
+            "GET", "/issues/123.json", params={"include": "journals"}
+        )
+
+    @patch("httpx.Client")
+    def test_get_users(self, mock_httpx_client, mock_config):
+        """ユーザー取得のテスト"""
+        mock_client_instance = Mock()
+        mock_response = Mock()
+        mock_response.json.return_value = {"users": []}
+        mock_response.headers = {"content-type": "application/json"}
+        mock_client_instance.request.return_value = mock_response
+        mock_httpx_client.return_value = mock_client_instance
+
+        client = RedmineClient(mock_config)
+        result = client.get_users(limit=50, offset=10)
+
+        assert result == {"users": []}
+        mock_client_instance.request.assert_called_once_with(
+            "GET", "/users.json", params={"limit": 50, "offset": 10}
+        )

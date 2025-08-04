@@ -76,6 +76,9 @@ class RedmineClient:
         version_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
+        include_journals: bool = False,
+        include_children: bool = False,
+        updated_on: str | None = None,
     ) -> dict[str, Any]:
         """課題一覧を取得"""
         params = {"limit": limit, "offset": offset, "status_id": "*"}
@@ -84,12 +87,36 @@ class RedmineClient:
             params["project_id"] = project_id
         if version_id:
             params["fixed_version_id"] = version_id
+        if updated_on:
+            params["updated_on"] = f">={updated_on}"
+            params["set_filter"] = "1"
+
+        # include パラメータを設定
+        includes = []
+        if include_journals:
+            includes.append("journals")
+        if include_children:
+            includes.append("children")
+        if includes:
+            params["include"] = ",".join(includes)
 
         return self._make_request("GET", "/issues.json", params=params)
+
+    def get_issue(self, issue_id: int, include_journals: bool = True) -> dict[str, Any]:
+        """特定の課題を詳細情報付きで取得"""
+        params = {}
+        if include_journals:
+            params["include"] = "journals"
+        return self._make_request("GET", f"/issues/{issue_id}.json", params=params)
 
     def get_versions(self, project_id: str) -> dict[str, Any]:
         """プロジェクトのバージョン（マイルストーン）一覧を取得"""
         return self._make_request("GET", f"/projects/{project_id}/versions.json")
+
+    def get_users(self, limit: int = 100, offset: int = 0) -> dict[str, Any]:
+        """ユーザー一覧を取得"""
+        params = {"limit": limit, "offset": offset}
+        return self._make_request("GET", "/users.json", params=params)
 
     def test_connection(self) -> dict[str, Any]:
         """接続テスト（軽量なエンドポイントを使用）"""
