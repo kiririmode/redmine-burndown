@@ -42,6 +42,7 @@ class TestDatabaseManager:
                 "issue_journals",
                 "issues",
                 "meta",
+                "releases",
                 "snapshots",
                 "versions",
             ]
@@ -76,6 +77,7 @@ class TestIssueModel:
             "is_leaf": 1,
             "assigned_to_id": 5,
             "assigned_to_name": "田中太郎",
+            "due_date": None,
             "last_seen_at": "2024-01-01T10:00:00Z",
         }
 
@@ -109,6 +111,7 @@ class TestIssueModel:
             "is_leaf": 1,
             "assigned_to_id": 5,
             "assigned_to_name": "田中太郎",
+            "due_date": None,
             "last_seen_at": "2024-01-01T10:00:00Z",
         }
         issue_model.upsert_issue(issue_data)
@@ -135,6 +138,7 @@ class TestIssueModel:
             "is_leaf": 0,
             "assigned_to_id": 5,
             "assigned_to_name": "田中太郎",
+            "due_date": None,
             "last_seen_at": "2024-01-01T10:00:00Z",
         }
         issue_model.upsert_issue(parent_issue)
@@ -153,6 +157,7 @@ class TestIssueModel:
             "is_leaf": 1,
             "assigned_to_id": 6,
             "assigned_to_name": "佐藤花子",
+            "due_date": None,
             "last_seen_at": "2024-01-01T10:00:00Z",
         }
         issue_model.upsert_issue(child_issue)
@@ -173,7 +178,8 @@ class TestSnapshotModel:
 
         snapshot_data = {
             "date": "2024-01-01",
-            "version_id": 100,
+            "target_type": "version",
+            "target_id": 100,
             "scope_hours": 80.0,
             "remaining_hours": 64.0,
             "completed_hours": 16.0,
@@ -188,8 +194,8 @@ class TestSnapshotModel:
         # データが正しく保存されたことを確認
         with temp_db.get_connection() as conn:
             cursor = conn.execute(
-                "SELECT * FROM snapshots WHERE date = ? AND version_id = ?",
-                ("2024-01-01", 100),
+                "SELECT * FROM snapshots WHERE date = ? AND target_type = ? AND target_id = ?",
+                ("2024-01-01", "version", 100),
             )
             row = cursor.fetchone()
 
@@ -203,7 +209,8 @@ class TestSnapshotModel:
 
         assignee_snapshot_data = {
             "date": "2024-01-01",
-            "version_id": 100,
+            "target_type": "version",
+            "target_id": 100,
             "assigned_to_id": 5,
             "assigned_to_name": "田中太郎",
             "scope_hours": 24.0,
@@ -217,8 +224,8 @@ class TestSnapshotModel:
         with temp_db.get_connection() as conn:
             cursor = conn.execute(
                 "SELECT * FROM assignee_snapshots "
-                "WHERE date = ? AND version_id = ? AND assigned_to_id = ?",
-                ("2024-01-01", 100, 5),
+                "WHERE date = ? AND target_type = ? AND target_id = ? AND assigned_to_id = ?",
+                ("2024-01-01", "version", 100, 5),
             )
             row = cursor.fetchone()
 
@@ -232,7 +239,8 @@ class TestSnapshotModel:
 
         unassigned_snapshot_data = {
             "date": "2024-01-01",
-            "version_id": 100,
+            "target_type": "version",
+            "target_id": 100,
             "assigned_to_id": None,
             "assigned_to_name": None,
             "scope_hours": 16.0,
@@ -246,8 +254,8 @@ class TestSnapshotModel:
         with temp_db.get_connection() as conn:
             cursor = conn.execute(
                 "SELECT * FROM assignee_snapshots "
-                "WHERE date = ? AND version_id = ? AND assigned_to_id IS NULL",
-                ("2024-01-01", 100),
+                "WHERE date = ? AND target_type = ? AND target_id = ? AND assigned_to_id IS NULL",
+                ("2024-01-01", "version", 100),
             )
             row = cursor.fetchone()
 
@@ -262,7 +270,8 @@ class TestSnapshotModel:
         # テストデータを挿入
         snapshot_data = {
             "date": "2024-01-01",
-            "version_id": 100,
+            "target_type": "version",
+            "target_id": 100,
             "scope_hours": 80.0,
             "remaining_hours": 64.0,
             "completed_hours": 16.0,
@@ -284,7 +293,8 @@ class TestSnapshotModel:
         # テストデータを挿入
         assignee_snapshot_data = {
             "date": "2024-01-01",
-            "version_id": 100,
+            "target_type": "version",
+            "target_id": 100,
             "assigned_to_id": 5,
             "assigned_to_name": "田中太郎",
             "scope_hours": 24.0,

@@ -2,7 +2,10 @@
 
 ## 1. ゴール / スコープ
 
-- Redmine の Version（マイルストーン）＝スプリント を対象に、工数（estimated_hours） ベースのバーンダウンを日次で生成・保存・可視化する。
+- Redmine のチケットを対象に、工数（estimated_hours） ベースのバーンダウンを日次で生成・保存・可視化する。
+- **集計対象の指定方法**：
+  - **Version指定**: 特定のマイルストーン/スプリントを対象
+  - **期日指定**: 指定期日以前の全チケットを対象（リリースバーンダウン）
 - 可視化は以下を同一チャートで表示する：
   - 実績バーンダウン（残工数）
   - 理想線（初期コミット基準、営業日均等減）
@@ -30,16 +33,22 @@
 ### 3.1 データモデル（SQLite 概要）
 
 - `versions(id, project_id, name, start_date, due_date)`
+- **`releases(id, project_id, due_date, name, description)`**
+  - **期日指定バーンダウン用**：Redmineに対応項目なし、ローカル管理専用
+  - name: "Release v2.0" 等の識別ラベル
 - `issues(id, project_id, version_id, parent_id, subject, status_name,
   estimated_hours, closed_on, updated_on, is_leaf, last_seen_at,
-  assigned_to_id, assigned_to_name)`
+  assigned_to_id, assigned_to_name, due_date)`
   - **assigned_to_id**: 担当者のRedmine内部ID（NULL可）
   - **assigned_to_name**: 担当者名（表示用、NULL可）
+  - **due_date**: チケット期日（期日指定モードで使用）
 - `issue_journals(issue_id, at, field, old, new)`
   - （estimated_hours／status_id／fixed_version_id／assigned_to_id など変更履歴）
-- `snapshots(date, version_id, scope_hours, remaining_hours, completed_hours,
+- `snapshots(date, target_type, target_id, scope_hours, remaining_hours, completed_hours,
   ideal_remaining_hours, v_avg, v_max, v_min)`
-- `assignee_snapshots(date, version_id, assigned_to_id, assigned_to_name,
+  - **target_type**: "version" | "release"
+  - **target_id**: version_id または release_id
+- `assignee_snapshots(date, target_type, target_id, assigned_to_id, assigned_to_name,
   scope_hours, remaining_hours, completed_hours)`
   - **担当者別の日次スナップショット**：assigned_to_id=NULL は未アサイン課題
 - `meta(key, value)`（初期スコープ S0、最終スナップショット日 等）
@@ -57,17 +66,22 @@ effective_estimate(issue):
     return issue.estimated_hours or 0
 ```
 
-- バーン集計対象は Version に属する「ルート課題（親なし）集合」 に effective_estimate を適用した合算。
-- Version 外の子は対象外。Version 移動は当日スナップショットに反映。
+- **Version指定モード**: Version に属する「ルート課題（親なし）集合」 に effective_estimate を適用した合算
+- **期日指定モード**: `due_date <= 指定日` の「ルート課題（親なし）集合」 に effective_estimate を適用した合算
+- Version 外の子は対象外。Version 移動/期日変更は当日スナップショットに反映。
 
 ### 3.3 スナップショット指標（各日 23:59 JST の「終値」）
 
 #### 3.3.1 全体指標（既存）
 
-- スコープ総量 scope_hours：当日時点で Version に属する全ルート課題の effective_estimate 合計
+- スコープ総量 scope_hours：当日時点で対象範囲に属する全ルート課題の effective_estimate 合計
+  - **Version指定**: Version に属する課題
+  - **期日指定**: `due_date <= 指定日` の課題
 - 残工数 remaining_hours：同上のうち 完了でない 課題の合計
 - 完了工数 completed_hours：scope_hours - remaining_hours
-- 初期コミット S0：スプリント開始日の scope_hours（理想線の基準）
+- 初期コミット S0：開始日の scope_hours（理想線の基準）
+  - **Version指定**: Version開始日
+  - **期日指定**: 最初のスナップショット日
 - 理想線 ideal_remaining_hours(d)：
   - 営業日総数 D、開始から d 営業日経過 → S0 * (D - d) / D（0 下限）
 - 日次バーン量（当日） burn(d)：
@@ -129,15 +143,27 @@ effective_estimate(issue):
 
 ```bash
 rd-burndown init
+
+# Version指定モード（従来）
 rd-burndown sync        --project <id|identifier> --version <id|name>
 rd-burndown snapshot    --project <...> --version <...> [--at YYYY-MM-DD]
 rd-burndown replay      --project <...> --version <...>
-# 開始～終了まで全営業日を再生
 rd-burndown export      --project <...> --version <...> --fmt csv|json > out.csv
-rd-burndown plot        --project <...> --version <...> --out sprint.png \
-  [--html sprint.html] [--by-assignee] [--assignee-chart assignee_load.png]
+rd-burndown plot        --project <...> --version <...> --out sprint.png
+
+# 期日指定モード（新規）
+rd-burndown sync        --project <id|identifier> --due-date YYYY-MM-DD \
+  [--name "Release v2.0"]
+rd-burndown snapshot    --project <...> --due-date <...> [--at YYYY-MM-DD]
+rd-burndown replay      --project <...> --due-date <...>
+rd-burndown export      --project <...> --due-date <...> --fmt csv|json > out.csv
+rd-burndown plot        --project <...> --due-date <...> --out release.png \
+  [--html release.html] [--by-assignee] [--assignee-chart assignee_load.png]
+
+# 共通オプション
 # --by-assignee: 担当者別チャートも生成
 # --assignee-chart: 担当者別負荷チャートファイル名
+# --name: 期日指定時のローカル識別名（デフォルト: "Release-YYYY-MM-DD"）
 ```
 
 ### 5.2 設定ファイル（rd-burndown.yaml）
@@ -148,7 +174,13 @@ redmine:
   api_key: "${REDMINE_API_KEY}"    # 環境変数推奨
   timeout_sec: 15
   project_identifier: "myproj"     # or project_id
+
+  # Version指定モード用
   version_name: "Sprint-2025.08-1" # or fixed_version_id
+
+  # 期日指定モード用
+  release_due_date: "2025-12-31"   # YYYY-MM-DD
+  release_name: "Release v2.0"     # ローカル識別名
 
 sprint:
   timezone: "Asia/Tokyo"
@@ -183,12 +215,23 @@ output:
 
 ## 6. Redmine API 取得戦略（5.x）
 
+### 6.1 Version指定モード（従来）
+
 - Issues：GET /issues.json?project_id=...&fixed_version_id=...&status_id=*&include=journals,children&limit=100&offset=...
-  - **assigned_to 情報取得**：レスポンスの `assigned_to.id` と `assigned_to.name` を抽出
-- ページング対応、updated_on で差分同期（set_filter=1 を併用）
-- journals.details から estimated_hours／status_id／fixed_version_id／
-  **assigned_to_id** の変更を抽出
 - Versions：GET /projects/:id/versions.json（start_date/due_date）
+
+### 6.2 期日指定モード（新規）
+
+- Issues：GET /issues.json?project_id=...&due_date=<=YYYY-MM-DD&status_id=*&include=journals,children&limit=100&offset=...
+  - `due_date` フィルターを使用してバージョン指定なしで取得
+  - 期日未設定チケット（due_date=NULL）は除外
+
+### 6.3 共通処理
+
+- **assigned_to 情報取得**：レスポンスの `assigned_to.id` と `assigned_to.name` を抽出
+- ページング対応、updated_on で差分同期（set_filter=1 を併用）
+- journals.details から estimated_hours／status_id／fixed_version_id／due_date／
+  **assigned_to_id** の変更を抽出
 - Statuses：GET /issue_statuses.json（表示用途。判定は設定ファイル優先）
 - **Users（任意）**：GET /users.json
   - 担当者名の正規化、アクティブ状態確認用
@@ -212,9 +255,12 @@ output:
 
 ### 7.2 処理フロー
 
-1. sync：Version/Issues/Statuses を取得 → issues と issue_journals を更新
+1. sync：
+   - **Version指定**: Version/Issues/Statuses を取得
+   - **期日指定**: Issues（期日フィルター）/Statuses を取得
+   - → issues と issue_journals を更新
 2. snapshot：当日23:59 JST基準で as-of 集計 → snapshots と **assignee_snapshots** に保存
-3. velocity 算出：当スプリントの burn(d) から V_avg/V_max/V_min を計算
+3. velocity 算出：対象範囲の burn(d) から V_avg/V_max/V_min を計算
 4. plot/export：CSV/JSON と PNG/HTML を出力（**担当者別チャートを含む**）
 
 ### 7.3 ベロシティ計算の実装ポイント

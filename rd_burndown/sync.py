@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.progress import Progress
 
 from .api import RedmineAPIError, RedmineClient
-from .models import DatabaseManager, IssueModel
+from .models import DatabaseManager, IssueModel, ReleaseModel
 
 
 class DataSyncService:
@@ -21,11 +21,14 @@ class DataSyncService:
         self.db_manager = db_manager
         self.console = console
         self.issue_model = IssueModel(db_manager)
+        self.release_model = ReleaseModel(db_manager)
 
     def sync_project_data(
         self,
         project_id: str,
-        version_name: str,
+        version_name: str | None = None,
+        release_due_date: str | None = None,
+        release_name: str | None = None,
         full_sync: bool = False,
         verbose: bool = False,
         progress: Progress | None = None,
@@ -40,26 +43,46 @@ class DataSyncService:
             project_id, verbose, progress, task_id
         )
 
-        # バージョン確認
-        target_version = self._validate_and_get_version(
-            project_id, version_name, verbose, progress, task_id
-        )
-        version_id = target_version["id"]
-
-        # バージョン情報をDBに保存
-        self._save_version(target_version, project_data["id"])
-
-        # 同期設定準備
-        last_updated = self._prepare_sync_settings(version_id, full_sync, verbose)
+        # モード判定
+        if version_name:
+            # Version指定モード
+            target_id, target_type = self._sync_version_mode(
+                project_data, version_name, verbose, progress, task_id
+            )
+        elif release_due_date:
+            # 期日指定モード
+            target_id, target_type = self._sync_release_mode(
+                project_data, release_due_date, release_name, verbose, progress, task_id
+            )
+        else:
+            raise ValueError(
+                "version_name または release_due_date のいずれかを指定してください"
+            )
 
         # 課題データ同期
-        issues_synced, journals_synced = self._perform_issues_sync(
-            project_data["id"], version_id, last_updated, verbose, progress, task_id
-        )
+        if target_type == "version":
+            # バージョン指定モードの同期
+            last_updated = self._prepare_sync_settings(target_id, full_sync, verbose)
+            issues_synced, journals_synced = self._perform_issues_sync_by_version(
+                project_data["id"], target_id, last_updated, verbose, progress, task_id
+            )
+        else:  # target_type == "release"
+            # 期日指定モードの同期
+            if not release_due_date:
+                raise ValueError("release_due_date is required for release mode")
+            issues_synced, journals_synced = self._perform_issues_sync_by_due_date(
+                project_data["id"],
+                release_due_date,
+                full_sync,
+                verbose,
+                progress,
+                task_id,
+            )
 
         duration = time.time() - start_time
         return {
-            "version_id": version_id,
+            "target_id": target_id,
+            "target_type": target_type,
             "issues_synced": issues_synced,
             "journals_synced": journals_synced,
             "duration": duration,
@@ -109,6 +132,58 @@ class DataSyncService:
 
         raise RedmineAPIError(f"バージョン '{version_name}' が見つかりません")
 
+    def _sync_version_mode(
+        self,
+        project_data: dict[str, Any],
+        version_name: str,
+        verbose: bool,
+        progress: Progress | None,
+        task_id: Any,
+    ) -> tuple[int, str]:
+        """バージョン指定モードの同期準備"""
+        target_version = self._validate_and_get_version(
+            project_data["identifier"], version_name, verbose, progress, task_id
+        )
+        version_id = target_version["id"]
+
+        # バージョン情報をDBに保存
+        self._save_version(target_version, project_data["id"])
+
+        return version_id, "version"
+
+    def _sync_release_mode(
+        self,
+        project_data: dict[str, Any],
+        release_due_date: str,
+        release_name: str | None,
+        verbose: bool,
+        progress: Progress | None,
+        task_id: Any,
+    ) -> tuple[int, str]:
+        """期日指定モードの同期準備"""
+        if progress and task_id:
+            progress.update(task_id, description="リリース情報確認中...")
+
+        # リリース名のデフォルト生成
+        final_release_name = release_name or f"Release-{release_due_date}"
+
+        # リリース情報をDBに保存/取得
+        release_data = {
+            "project_id": project_data["id"],
+            "due_date": release_due_date,
+            "name": final_release_name,
+            "description": f"期日指定バーンダウン: {release_due_date}まで",
+        }
+
+        release_id = self.release_model.upsert_release(release_data)
+
+        if verbose:
+            self.console.print(
+                f"リリース: {final_release_name} (期日: {release_due_date})"
+            )
+
+        return release_id, "release"
+
     def _prepare_sync_settings(
         self, version_id: int, full_sync: bool, verbose: bool
     ) -> str | None:
@@ -121,7 +196,7 @@ class DataSyncService:
             self.console.print(f"差分同期: {last_updated} 以降の更新を取得")
         return last_updated
 
-    def _perform_issues_sync(
+    def _perform_issues_sync_by_version(
         self,
         project_id: int,
         version_id: int,
@@ -130,11 +205,28 @@ class DataSyncService:
         progress: Progress | None,
         task_id: Any,
     ) -> tuple[int, int]:
-        """課題データの同期実行"""
+        """バージョン指定での課題データ同期実行"""
         if progress and task_id:
             progress.update(task_id, description="課題データ同期中...")
 
-        return self._sync_issues(project_id, version_id, last_updated, verbose)
+        return self._sync_issues_by_version(
+            project_id, version_id, last_updated, verbose
+        )
+
+    def _perform_issues_sync_by_due_date(
+        self,
+        project_id: int,
+        due_date: str,
+        full_sync: bool,
+        verbose: bool,
+        progress: Progress | None,
+        task_id: Any,
+    ) -> tuple[int, int]:
+        """期日指定での課題データ同期実行"""
+        if progress and task_id:
+            progress.update(task_id, description="期日指定課題データ同期中...")
+
+        return self._sync_issues_by_due_date(project_id, due_date, full_sync, verbose)
 
     def _save_version(self, version_data: dict[str, Any], project_id: int) -> None:
         """バージョン情報をデータベースに保存"""
@@ -168,10 +260,10 @@ class DataSyncService:
             result = cursor.fetchone()
             return result[0] if result and result[0] else None
 
-    def _sync_issues(
+    def _sync_issues_by_version(
         self, project_id: int, version_id: int, last_updated: str | None, verbose: bool
     ) -> tuple[int, int]:
-        """課題データを同期"""
+        """バージョン指定で課題データを同期"""
         issues_count = 0
         journals_count = 0
         offset = 0
@@ -218,6 +310,79 @@ class DataSyncService:
 
         return issues_count, journals_count
 
+    def _sync_issues_by_due_date(
+        self, project_id: int, due_date: str, full_sync: bool, verbose: bool
+    ) -> tuple[int, int]:
+        """期日指定で課題データを同期"""
+        issues_count = 0
+        journals_count = 0
+        offset = 0
+        limit = 100
+
+        # 期日フィルターでの差分同期は複雑なため、full_syncで処理
+        last_updated = (
+            None
+            if full_sync
+            else self._get_last_sync_timestamp_by_due_date(project_id, due_date)
+        )
+
+        while True:
+            # 期日指定での課題データを取得（due_date <= 指定日）
+            response = self.client.get_issues(
+                project_id=str(project_id),
+                due_date=f"<={due_date}",
+                limit=limit,
+                offset=offset,
+                include_journals=True,
+                include_children=True,
+                updated_on=last_updated,
+            )
+
+            issues = response.get("issues", [])
+            if not issues:
+                break
+
+            # 各課題を処理
+            for issue in issues:
+                # due_dateを追加してissue_dataを保存
+                issue_with_due_date = issue.copy()
+                issue_with_due_date["due_date"] = issue.get("due_date")
+
+                self._save_issue(issue_with_due_date, verbose)
+                issues_count += 1
+
+                # ジャーナル（変更履歴）を処理
+                journals = issue.get("journals", [])
+                for journal in journals:
+                    self._save_journal(issue["id"], journal)
+                    journals_count += 1
+
+            # ページング処理
+            total_count = response.get("total_count", 0)
+            offset += limit
+
+            if verbose:
+                self.console.print(
+                    f"  処理済み: {min(offset, total_count)}/{total_count} 課題 (期日: <={due_date})"
+                )
+
+            if offset >= total_count:
+                break
+
+        return issues_count, journals_count
+
+    def _get_last_sync_timestamp_by_due_date(
+        self, project_id: int, due_date: str
+    ) -> str | None:
+        """期日指定での最終同期タイムスタンプを取得"""
+        with self.db_manager.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT MAX(last_seen_at) FROM issues WHERE project_id = ? AND due_date <= ?",
+                (project_id, due_date),
+            )
+            result = cursor.fetchone()
+            return result[0] if result and result[0] else None
+
     def _save_issue(self, issue_data: dict[str, Any], verbose: bool) -> None:
         """課題データをデータベースに保存"""
         # 担当者情報を抽出
@@ -242,6 +407,7 @@ class DataSyncService:
             "is_leaf": is_leaf,
             "assigned_to_id": assigned_to_id,
             "assigned_to_name": assigned_to_name,
+            "due_date": issue_data.get("due_date"),
             "last_seen_at": datetime.now().isoformat(),
         }
 

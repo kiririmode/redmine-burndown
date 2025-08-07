@@ -108,7 +108,8 @@ class TestDataSyncService:
         mock_client.get_issues.assert_called_once()
 
         # 結果の確認
-        assert result["version_id"] == 10
+        assert result["target_id"] == 10
+        assert result["target_type"] == "version"
         assert result["issues_synced"] == 1
         assert result["journals_synced"] == 1
         assert "duration" in result

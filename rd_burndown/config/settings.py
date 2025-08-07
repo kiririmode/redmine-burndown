@@ -14,7 +14,13 @@ class RedmineConfig(BaseModel):
     api_key: str | None = Field(default=None)
     timeout_sec: int = Field(default=15)
     project_identifier: str | None = Field(default=None)
+
+    # Version指定モード用
     version_name: str | None = Field(default=None)
+
+    # 期日指定モード用
+    release_due_date: str | None = Field(default=None)
+    release_name: str | None = Field(default=None)
 
 
 class SprintConfig(BaseModel):

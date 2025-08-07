@@ -25,6 +25,8 @@ def mock_config():
     config = MagicMock()
     config.redmine.project_identifier = "test-project"
     config.redmine.version_name = "test-version"
+    config.redmine.release_due_date = None
+    config.redmine.release_name = None
     config.sprint.done_statuses = ["完了", "解決"]
     return config
 
@@ -52,7 +54,8 @@ class TestSnapshotCreateCommand:
         mock_snapshot_service = MagicMock()
         mock_snapshot_service_class.return_value = mock_snapshot_service
         mock_snapshot_service.create_snapshot.return_value = {
-            "version_id": 1,
+            "target_id": 1,
+            "target_type": "version",
             "target_date": "2025-08-05",
             "scope_hours": 100.0,
             "remaining_hours": 60.0,
@@ -72,7 +75,7 @@ class TestSnapshotCreateCommand:
         # 検証
         assert result.exit_code == 0
         assert "スナップショット生成完了" in result.stdout
-        assert "バージョンID: 1" in result.stdout
+        assert "対象ID: 1 (version)" in result.stdout
         assert "スコープ総量: 100.0h" in result.stdout
         assert "残工数: 60.0h" in result.stdout
         assert "完了工数: 40.0h" in result.stdout
@@ -84,6 +87,8 @@ class TestSnapshotCreateCommand:
         call_args = mock_snapshot_service.create_snapshot.call_args[1]
         assert call_args["project_identifier"] == "test-project"
         assert call_args["version_name"] == "test-version"
+        assert call_args["release_due_date"] is None
+        assert call_args["release_name"] is None
         assert call_args["target_date"] == date.today()
 
     @patch("rd_burndown.commands.snapshot.load_config")
@@ -106,7 +111,8 @@ class TestSnapshotCreateCommand:
         mock_snapshot_service = MagicMock()
         mock_snapshot_service_class.return_value = mock_snapshot_service
         mock_snapshot_service.create_snapshot.return_value = {
-            "version_id": 1,
+            "target_id": 1,
+            "target_type": "version",
             "target_date": "2025-08-01",
             "scope_hours": 100.0,
             "remaining_hours": 80.0,
@@ -172,16 +178,20 @@ class TestSnapshotCreateCommand:
 
     @patch("rd_burndown.commands.snapshot.load_config")
     def test_create_snapshot_missing_version(self, mock_load_config, runner):
-        """異常系: バージョンが指定されていない"""
+        """異常系: バージョンと期日の両方が指定されていない"""
         config = MagicMock()
         config.redmine.project_identifier = "test-project"
         config.redmine.version_name = None
+        config.redmine.release_due_date = None
+        config.redmine.release_name = None
         mock_load_config.return_value = config
 
         result = runner.invoke(snapshot_command, ["create"])
 
         assert result.exit_code == 1
-        assert "バージョンが指定されていません" in result.stdout
+        assert (
+            "--version または --due-date のいずれかを指定してください" in result.stdout
+        )
 
     @patch("rd_burndown.commands.snapshot.load_config")
     @patch("rd_burndown.commands.snapshot.DatabaseManager")
@@ -203,7 +213,8 @@ class TestSnapshotCreateCommand:
         mock_snapshot_service = MagicMock()
         mock_snapshot_service_class.return_value = mock_snapshot_service
         mock_snapshot_service.create_snapshot.return_value = {
-            "version_id": 1,
+            "target_id": 1,
+            "target_type": "version",
             "target_date": "2025-08-05",
             "scope_hours": 100.0,
             "remaining_hours": 60.0,

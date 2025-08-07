@@ -18,6 +18,8 @@ def _load_and_override_config(
     config_path: str | None,
     project: str | None,
     version: str | None,
+    due_date: str | None,
+    name: str | None,
 ) -> Config:
     """設定を読み込み、コマンドライン引数で上書き"""
     config = load_config(config_path)
@@ -26,21 +28,44 @@ def _load_and_override_config(
         config.redmine.project_identifier = project
     if version:
         config.redmine.version_name = version
+    if due_date:
+        config.redmine.release_due_date = due_date
+    if name:
+        config.redmine.release_name = name
 
     return config
 
 
-def _validate_snapshot_config(config: Config) -> tuple[str, str]:
-    """スナップショット生成に必要な設定を検証し、project_id と version_id を返す"""
+def _validate_snapshot_config(
+    config: Config, list_mode: bool = False
+) -> tuple[str, str | None, str | None, str | None]:
+    """スナップショット生成に必要な設定を検証し、(project_id, version_name, due_date, release_name) を返す"""
     if not config.redmine.project_identifier:
         console.print("[red]エラー: プロジェクトが指定されていません[/red]")
         raise typer.Exit(1)
 
-    if not config.redmine.version_name:
-        console.print("[red]エラー: バージョンが指定されていません[/red]")
-        raise typer.Exit(1)
+    version_specified = bool(config.redmine.version_name)
+    release_specified = bool(config.redmine.release_due_date)
 
-    return config.redmine.project_identifier, config.redmine.version_name
+    if not list_mode:  # create モードでは必須
+        if not version_specified and not release_specified:
+            console.print(
+                "[red]エラー: --version または --due-date のいずれかを指定してください[/red]"
+            )
+            raise typer.Exit(1)
+
+        if version_specified and release_specified:
+            console.print(
+                "[red]エラー: --version と --due-date は同時に指定できません[/red]"
+            )
+            raise typer.Exit(1)
+
+    return (
+        config.redmine.project_identifier,
+        config.redmine.version_name,
+        config.redmine.release_due_date,
+        config.redmine.release_name,
+    )
 
 
 @snapshot_command.command("create")
@@ -54,6 +79,12 @@ def create_snapshot(
     version: str | None = typer.Option(
         None, "--version", "-v", help="バージョンID または名前"
     ),
+    due_date: str | None = typer.Option(
+        None, "--due-date", "-d", help="期日指定 (YYYY-MM-DD形式)"
+    ),
+    name: str | None = typer.Option(
+        None, "--name", "-n", help="期日指定時のリリース名"
+    ),
     db_path: str = typer.Option(
         "./burndown.db", "--db", help="データベースファイルのパス"
     ),
@@ -64,8 +95,10 @@ def create_snapshot(
 ) -> None:
     """指定日時点でのスナップショットを生成・保存"""
 
-    config = _load_and_override_config(config_path, project, version)
-    project_id, version_name = _validate_snapshot_config(config)
+    config = _load_and_override_config(config_path, project, version, due_date, name)
+    project_id, version_name, release_due_date, release_name = (
+        _validate_snapshot_config(config)
+    )
 
     # 対象日の解析
     target_date: date
@@ -80,7 +113,15 @@ def create_snapshot(
 
     console.print("[bold blue]スナップショット生成開始[/bold blue]")
     console.print(f"プロジェクト: {project_id}")
-    console.print(f"バージョン: {version_name}")
+
+    if version_name:
+        console.print("モード: Version指定")
+        console.print(f"バージョン: {version_name}")
+    elif release_due_date:
+        console.print("モード: 期日指定")
+        console.print(f"期日: {release_due_date}")
+        console.print(f"リリース名: {release_name or f'Release-{release_due_date}'}")
+
     console.print(f"対象日: {target_date}")
     console.print(f"データベース: {db_path}")
     console.print()
@@ -102,6 +143,8 @@ def create_snapshot(
             result = snapshot_service.create_snapshot(
                 project_identifier=project_id,
                 version_name=version_name,
+                release_due_date=release_due_date,
+                release_name=release_name,
                 target_date=target_date,
                 verbose=verbose,
                 progress=progress,
@@ -113,7 +156,7 @@ def create_snapshot(
         # 結果表示
         console.print()
         console.print("[bold green]✓ スナップショット生成完了[/bold green]")
-        console.print(f"バージョンID: {result['version_id']}")
+        console.print(f"対象ID: {result['target_id']} ({result['target_type']})")
         console.print(f"スコープ総量: {result['scope_hours']:.1f}h")
         console.print(f"残工数: {result['remaining_hours']:.1f}h")
         console.print(f"完了工数: {result['completed_hours']:.1f}h")
@@ -144,6 +187,12 @@ def list_snapshots(
     version: str | None = typer.Option(
         None, "--version", "-v", help="バージョンID または名前"
     ),
+    due_date: str | None = typer.Option(
+        None, "--due-date", "-d", help="期日指定 (YYYY-MM-DD形式)"
+    ),
+    name: str | None = typer.Option(
+        None, "--name", "-n", help="期日指定時のリリース名"
+    ),
     db_path: str = typer.Option(
         "./burndown.db", "--db", help="データベースファイルのパス"
     ),
@@ -151,12 +200,28 @@ def list_snapshots(
 ) -> None:
     """保存されているスナップショットの一覧を表示"""
 
-    config = _load_and_override_config(config_path, project, version)
-    project_id, version_name = _validate_snapshot_config(config)
+    config = _load_and_override_config(config_path, project, version, due_date, name)
+    project_id, version_name, release_due_date, release_name = (
+        _validate_snapshot_config(config, list_mode=True)
+    )
 
     console.print("[bold blue]スナップショット一覧[/bold blue]")
     console.print(f"プロジェクト: {project_id}")
-    console.print(f"バージョン: {version_name}")
+
+    # モード判定と表示
+    if version_name:
+        console.print("モード: Version指定")
+        console.print(f"バージョン: {version_name}")
+        target_type = "version"
+    elif release_due_date:
+        console.print("モード: 期日指定")
+        console.print(f"期日: {release_due_date}")
+        console.print(f"リリース名: {release_name or f'Release-{release_due_date}'}")
+        target_type = "release"
+    else:
+        console.print("[yellow]バージョンまたは期日を指定してください[/yellow]")
+        return
+
     console.print(f"データベース: {db_path}")
     console.print()
 
@@ -166,20 +231,39 @@ def list_snapshots(
 
     try:
         with db_manager.get_connection() as conn:
-            # バージョンIDを取得
-            cursor = conn.execute(
-                "SELECT id FROM versions WHERE name = ?", (version_name,)
-            )
-            version_row = cursor.fetchone()
-
-            if not version_row:
-                console.print(
-                    "[yellow]指定されたバージョンのデータが見つかりません[/yellow]"
+            # 対象情報を取得
+            if target_type == "version":
+                # バージョン情報を取得
+                cursor = conn.execute(
+                    "SELECT id FROM versions WHERE name = ?", (version_name,)
                 )
-                console.print("まず `rd-burndown sync data` を実行してください")
-                return
+                target_row = cursor.fetchone()
 
-            version_id = version_row["id"]
+                if not target_row:
+                    console.print(
+                        "[yellow]指定されたバージョンのデータが見つかりません[/yellow]"
+                    )
+                    console.print("まず `rd-burndown sync data` を実行してください")
+                    return
+
+                target_id = target_row["id"]
+
+            else:  # target_type == "release"
+                # リリース情報を取得
+                cursor = conn.execute(
+                    "SELECT id FROM releases WHERE due_date = ? AND name = ?",
+                    (release_due_date, release_name or f"Release-{release_due_date}"),
+                )
+                target_row = cursor.fetchone()
+
+                if not target_row:
+                    console.print(
+                        "[yellow]指定されたリリースのデータが見つかりません[/yellow]"
+                    )
+                    console.print("まず `rd-burndown sync data` を実行してください")
+                    return
+
+                target_id = target_row["id"]
 
             # スナップショット一覧を取得
             cursor = conn.execute(
@@ -187,11 +271,11 @@ def list_snapshots(
                 SELECT date, scope_hours, remaining_hours, completed_hours,
                        ideal_remaining_hours, v_avg, v_max, v_min
                 FROM snapshots
-                WHERE version_id = ?
+                WHERE target_type = ? AND target_id = ?
                 ORDER BY date DESC
                 LIMIT ?
                 """,
-                (version_id, limit),
+                (target_type, target_id, limit),
             )
             snapshots = cursor.fetchall()
 

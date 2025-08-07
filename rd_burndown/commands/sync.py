@@ -19,6 +19,8 @@ def _load_and_override_config(
     api_key: str | None,
     project: str | None,
     version: str | None,
+    due_date: str | None,
+    name: str | None,
 ) -> Config:
     """設定を読み込み、コマンドライン引数で上書き"""
     config = load_config(config_path)
@@ -31,21 +33,43 @@ def _load_and_override_config(
         config.redmine.project_identifier = project
     if version:
         config.redmine.version_name = version
+    if due_date:
+        config.redmine.release_due_date = due_date
+    if name:
+        config.redmine.release_name = name
 
     return config
 
 
-def _validate_sync_config(config: Config) -> tuple[str, str]:
-    """同期に必要な設定を検証し、project_id と version_id を返す"""
+def _validate_sync_config(
+    config: Config,
+) -> tuple[str, str | None, str | None, str | None]:
+    """同期に必要な設定を検証し、(project_id, version_name, due_date, release_name) を返す"""
     if not config.redmine.project_identifier:
         console.print("[red]エラー: プロジェクトが指定されていません[/red]")
         raise typer.Exit(1)
 
-    if not config.redmine.version_name:
-        console.print("[red]エラー: バージョンが指定されていません[/red]")
+    version_specified = bool(config.redmine.version_name)
+    release_specified = bool(config.redmine.release_due_date)
+
+    if not version_specified and not release_specified:
+        console.print(
+            "[red]エラー: --version または --due-date のいずれかを指定してください[/red]"
+        )
         raise typer.Exit(1)
 
-    return config.redmine.project_identifier, config.redmine.version_name
+    if version_specified and release_specified:
+        console.print(
+            "[red]エラー: --version と --due-date は同時に指定できません[/red]"
+        )
+        raise typer.Exit(1)
+
+    return (
+        config.redmine.project_identifier,
+        config.redmine.version_name,
+        config.redmine.release_due_date,
+        config.redmine.release_name,
+    )
 
 
 @sync_command.command("data")
@@ -61,6 +85,12 @@ def sync_data(
     version: str | None = typer.Option(
         None, "--version", "-v", help="バージョンID または名前"
     ),
+    due_date: str | None = typer.Option(
+        None, "--due-date", "-d", help="期日指定 (YYYY-MM-DD形式)"
+    ),
+    name: str | None = typer.Option(
+        None, "--name", "-n", help="期日指定時のリリース名"
+    ),
     db_path: str = typer.Option(
         "./burndown.db", "--db", help="データベースファイルのパス"
     ),
@@ -71,12 +101,24 @@ def sync_data(
 ) -> None:
     """Redmine からデータを同期"""
 
-    config = _load_and_override_config(config_path, base_url, api_key, project, version)
-    project_id, version_name = _validate_sync_config(config)
+    config = _load_and_override_config(
+        config_path, base_url, api_key, project, version, due_date, name
+    )
+    project_id, version_name, release_due_date, release_name = _validate_sync_config(
+        config
+    )
 
     console.print("[bold blue]データ同期開始[/bold blue]")
     console.print(f"プロジェクト: {project_id}")
-    console.print(f"バージョン: {version_name}")
+
+    if version_name:
+        console.print("モード: Version指定")
+        console.print(f"バージョン: {version_name}")
+    elif release_due_date:
+        console.print("モード: 期日指定")
+        console.print(f"期日: {release_due_date}")
+        console.print(f"リリース名: {release_name or f'Release-{release_due_date}'}")
+
     console.print(f"データベース: {db_path}")
     console.print(f"同期モード: {'完全同期' if full_sync else '差分同期'}")
     console.print()
@@ -99,6 +141,8 @@ def sync_data(
                 result = sync_service.sync_project_data(
                     project_id=project_id,
                     version_name=version_name,
+                    release_due_date=release_due_date,
+                    release_name=release_name,
                     full_sync=full_sync,
                     verbose=verbose,
                     progress=progress,
@@ -110,7 +154,7 @@ def sync_data(
             # 結果表示
             console.print()
             console.print("[bold green]✓ 同期完了[/bold green]")
-            console.print(f"バージョンID: {result['version_id']}")
+            console.print(f"対象ID: {result['target_id']} ({result['target_type']})")
             console.print(f"課題数: {result['issues_synced']}")
             console.print(f"ジャーナル数: {result['journals_synced']}")
             console.print(f"処理時間: {result['duration']:.2f}秒")
@@ -141,18 +185,36 @@ def sync_status(
     version: str | None = typer.Option(
         None, "--version", "-v", help="バージョンID または名前"
     ),
+    due_date: str | None = typer.Option(
+        None, "--due-date", "-d", help="期日指定 (YYYY-MM-DD形式)"
+    ),
+    name: str | None = typer.Option(
+        None, "--name", "-n", help="期日指定時のリリース名"
+    ),
     db_path: str = typer.Option(
         "./burndown.db", "--db", help="データベースファイルのパス"
     ),
 ) -> None:
     """同期状況を確認"""
 
-    config = _load_and_override_config(config_path, None, None, project, version)
-    project_id, version_name = _validate_sync_config(config)
+    config = _load_and_override_config(
+        config_path, None, None, project, version, due_date, name
+    )
+    project_id, version_name, release_due_date, release_name = _validate_sync_config(
+        config
+    )
 
     console.print("[bold blue]同期状況確認[/bold blue]")
     console.print(f"プロジェクト: {project_id}")
-    console.print(f"バージョン: {version_name}")
+
+    if version_name:
+        console.print("モード: Version指定")
+        console.print(f"バージョン: {version_name}")
+    elif release_due_date:
+        console.print("モード: 期日指定")
+        console.print(f"期日: {release_due_date}")
+        console.print(f"リリース名: {release_name or f'Release-{release_due_date}'}")
+
     console.print(f"データベース: {db_path}")
     console.print()
 

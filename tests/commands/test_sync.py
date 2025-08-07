@@ -37,7 +37,8 @@ def mock_sync_service():
     """モック同期サービス"""
     mock_service = MagicMock()
     mock_service.sync_project_data.return_value = {
-        "version_id": 10,
+        "target_id": 10,
+        "target_type": "version",
         "issues_synced": 5,
         "journals_synced": 3,
         "duration": 1.23,
@@ -66,6 +67,8 @@ class TestSyncCommand:
         mock_config = MagicMock()
         mock_config.redmine.project_identifier = "test-project"
         mock_config.redmine.version_name = "Sprint-2025.01"
+        mock_config.redmine.release_due_date = None
+        mock_config.redmine.release_name = None
         mock_load_config.return_value = mock_config
 
         mock_client = MagicMock()
@@ -92,7 +95,7 @@ class TestSyncCommand:
         assert result.exit_code == 0
         assert "データ同期開始" in result.stdout
         assert "同期完了" in result.stdout
-        assert "バージョンID: 10" in result.stdout
+        assert "対象ID: 10 (version)" in result.stdout
         assert "課題数: 5" in result.stdout
 
         # サービスが正しく呼ばれたことを確認
@@ -104,6 +107,8 @@ class TestSyncCommand:
         mock_config = MagicMock()
         mock_config.redmine.project_identifier = None
         mock_config.redmine.version_name = "Sprint-2025.01"
+        mock_config.redmine.release_due_date = None
+        mock_config.redmine.release_name = None
         mock_load_config.return_value = mock_config
 
         result = runner.invoke(sync_command, ["data"])
@@ -117,12 +122,16 @@ class TestSyncCommand:
         mock_config = MagicMock()
         mock_config.redmine.project_identifier = "test-project"
         mock_config.redmine.version_name = None
+        mock_config.redmine.release_due_date = None
+        mock_config.redmine.release_name = None
         mock_load_config.return_value = mock_config
 
         result = runner.invoke(sync_command, ["data"])
 
         assert result.exit_code == 1
-        assert "バージョンが指定されていません" in result.stdout
+        assert (
+            "--version または --due-date のいずれかを指定してください" in result.stdout
+        )
 
     @patch("rd_burndown.commands.sync.DataSyncService")
     @patch("rd_burndown.commands.sync.RedmineClient")
@@ -136,6 +145,8 @@ class TestSyncCommand:
         mock_config = MagicMock()
         mock_config.redmine.project_identifier = "test-project"
         mock_config.redmine.version_name = "Sprint-2025.01"
+        mock_config.redmine.release_due_date = None
+        mock_config.redmine.release_name = None
         mock_load_config.return_value = mock_config
 
         mock_client = MagicMock()
@@ -171,6 +182,8 @@ class TestSyncCommand:
         mock_config = MagicMock()
         mock_config.redmine.project_identifier = "test-project"
         mock_config.redmine.version_name = "Sprint-2025.01"
+        mock_config.redmine.release_due_date = None
+        mock_config.redmine.release_name = None
         mock_load_config.return_value = mock_config
 
         # テストデータをDBに挿入
@@ -220,6 +233,8 @@ class TestSyncCommand:
         mock_config = MagicMock()
         mock_config.redmine.project_identifier = "test-project"
         mock_config.redmine.version_name = "Sprint-2025.01"
+        mock_config.redmine.release_due_date = None
+        mock_config.redmine.release_name = None
         mock_load_config.return_value = mock_config
 
         result = runner.invoke(

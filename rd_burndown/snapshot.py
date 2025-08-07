@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.progress import Progress
 
 from .config import Config
-from .models import DatabaseManager, IssueModel, SnapshotModel
+from .models import DatabaseManager, IssueModel, ReleaseModel, SnapshotModel
 
 
 class SnapshotService:
@@ -22,12 +22,15 @@ class SnapshotService:
         self.console = console
         self.issue_model = IssueModel(db_manager)
         self.snapshot_model = SnapshotModel(db_manager)
+        self.release_model = ReleaseModel(db_manager)
 
     def create_snapshot(
         self,
         project_identifier: str,
-        version_name: str,
-        target_date: date,
+        version_name: str | None = None,
+        release_due_date: str | None = None,
+        release_name: str | None = None,
+        target_date: date | None = None,
         verbose: bool = False,
         progress: Progress | None = None,
         task_id: Any = None,
@@ -36,67 +39,167 @@ class SnapshotService:
         start_time = time.time()
         warnings = []
 
-        # バージョン情報の取得
-        if progress and task_id:
-            progress.update(task_id, description="バージョン情報を取得中...")
+        target_date = target_date or date.today()
+        target_id, target_type = self._determine_target(
+            project_identifier,
+            version_name,
+            release_due_date,
+            release_name,
+            verbose,
+            progress,
+            task_id,
+        )
 
-        version_id = self._get_version_id(version_name)
-        if not version_id:
-            raise ValueError(f"バージョン '{version_name}' が見つかりません")
-
-        version_info = self._get_version_info(version_id)
-        if verbose:
-            self.console.print(f"バージョンID: {version_id}")
-            self.console.print(
-                f"期間: {version_info['start_date']} - {version_info['due_date']}"
-            )
-
-        # 課題データの取得（指定日時点）
-        if progress and task_id:
-            progress.update(task_id, description="課題データを取得中...")
-
-        issues = self._get_issues_at_date(version_id, target_date)
-        if verbose:
-            self.console.print(f"対象課題数: {len(issues)}")
+        issues = self._get_target_issues(
+            target_id,
+            target_type,
+            project_identifier,
+            release_due_date,
+            target_date,
+            verbose,
+            progress,
+            task_id,
+        )
 
         # 親子関係の解決とeffective_estimateの計算
         if progress and task_id:
             progress.update(task_id, description="工数計算中...")
-
         issue_estimates = self._calculate_effective_estimates(issues, warnings, verbose)
 
+        # スナップショット計算と保存
+        snapshot_data, assignee_snapshots = self._calculate_and_save_snapshots(
+            target_id,
+            target_type,
+            target_date,
+            issues,
+            issue_estimates,
+            warnings,
+            verbose,
+            progress,
+            task_id,
+        )
+
+        duration = time.time() - start_time
+        return self._build_result(
+            target_id,
+            target_type,
+            target_date,
+            snapshot_data,
+            assignee_snapshots,
+            duration,
+            warnings,
+        )
+
+    def _determine_target(
+        self,
+        project_identifier: str,
+        version_name: str | None,
+        release_due_date: str | None,
+        release_name: str | None,
+        verbose: bool,
+        progress: Progress | None,
+        task_id: Any,
+    ) -> tuple[int, str]:
+        """対象（VersionまたはRelease）を決定"""
+        if version_name:
+            return self._prepare_version_mode(version_name, verbose, progress, task_id)
+        elif release_due_date:
+            return self._prepare_release_mode(
+                project_identifier,
+                release_due_date,
+                release_name,
+                verbose,
+                progress,
+                task_id,
+            )
+        else:
+            raise ValueError(
+                "version_name または release_due_date のいずれかを指定してください"
+            )
+
+    def _get_target_issues(
+        self,
+        target_id: int,
+        target_type: str,
+        project_identifier: str,
+        release_due_date: str | None,
+        target_date: date,
+        verbose: bool,
+        progress: Progress | None,
+        task_id: Any,
+    ) -> list:
+        """対象課題を取得"""
+        if progress and task_id:
+            progress.update(task_id, description="課題データを取得中...")
+
+        if target_type == "version":
+            issues = self._get_issues_at_date(target_id, target_date)
+        else:  # target_type == "release"
+            if not release_due_date:
+                raise ValueError("release_due_date is required for release mode")
+            issues = self._get_issues_by_due_date(
+                project_identifier, release_due_date, target_date
+            )
+
+        if verbose:
+            self.console.print(f"対象課題数: {len(issues)}")
+        return issues
+
+    def _calculate_and_save_snapshots(
+        self,
+        target_id: int,
+        target_type: str,
+        target_date: date,
+        issues: list,
+        issue_estimates: dict,
+        warnings: list,
+        verbose: bool,
+        progress: Progress | None,
+        task_id: Any,
+    ) -> tuple[dict, list]:
+        """スナップショット計算と保存"""
         # 全体スナップショットの計算
         if progress and task_id:
             progress.update(task_id, description="全体指標を計算中...")
-
         snapshot_data = self._calculate_snapshot_metrics(
-            version_id, version_info, target_date, issue_estimates, warnings, verbose
+            target_id, target_type, target_date, issue_estimates, warnings, verbose
         )
 
         # 担当者別スナップショットの計算
         if progress and task_id:
             progress.update(task_id, description="担当者別指標を計算中...")
-
         assignee_snapshots = self._calculate_assignee_snapshots(
-            version_id, target_date, issues, issue_estimates, verbose
+            target_id, target_type, target_date, issues, issue_estimates, verbose
         )
 
         # データベースに保存
         if progress and task_id:
             progress.update(task_id, description="データベースに保存中...")
-
         self.snapshot_model.save_snapshot(snapshot_data)
-
         for assignee_snapshot in assignee_snapshots:
             self.snapshot_model.save_assignee_snapshot(assignee_snapshot)
 
-        # メタデータの更新（初回スナップショット日の記録など）
-        self._update_metadata(version_id, target_date, snapshot_data["scope_hours"])
+        # メタデータの更新
+        self._update_metadata(
+            target_id, target_type, target_date, snapshot_data["scope_hours"]
+        )
 
-        duration = time.time() - start_time
+        return snapshot_data, assignee_snapshots
 
+    def _build_result(
+        self,
+        target_id: int,
+        target_type: str,
+        target_date: date,
+        snapshot_data: dict,
+        assignee_snapshots: list,
+        duration: float,
+        warnings: list,
+    ) -> dict[str, Any]:
+        """結果データを構築"""
         return {
-            "version_id": version_id,
+            "target_id": target_id,
+            "target_type": target_type,
             "target_date": target_date.isoformat(),
             "scope_hours": snapshot_data["scope_hours"],
             "remaining_hours": snapshot_data["remaining_hours"],
@@ -122,6 +225,84 @@ class SnapshotService:
             cursor = conn.execute("SELECT * FROM versions WHERE id = ?", (version_id,))
             row = cursor.fetchone()
             return dict(row) if row else {}
+
+    def _prepare_version_mode(
+        self, version_name: str, verbose: bool, progress: Progress | None, task_id: Any
+    ) -> tuple[int, str]:
+        """バージョン指定モードの準備"""
+        if progress and task_id:
+            progress.update(task_id, description="バージョン情報を取得中...")
+
+        version_id = self._get_version_id(version_name)
+        if not version_id:
+            raise ValueError(f"バージョン '{version_name}' が見つかりません")
+
+        if verbose:
+            version_info = self._get_version_info(version_id)
+            self.console.print(f"バージョン: {version_info.get('name')}")
+            self.console.print(
+                f"期間: {version_info.get('start_date')} - {version_info.get('due_date')}"
+            )
+
+        return version_id, "version"
+
+    def _prepare_release_mode(
+        self,
+        project_identifier: str,
+        release_due_date: str,
+        release_name: str | None,
+        verbose: bool,
+        progress: Progress | None,
+        task_id: Any,
+    ) -> tuple[int, str]:
+        """期日指定モードの準備"""
+        if progress and task_id:
+            progress.update(task_id, description="リリース情報を取得中...")
+
+        # リリース名のデフォルト生成
+        final_release_name = release_name or f"Release-{release_due_date}"
+
+        # プロジェクトIDを取得（project_identifierから）
+        project_id = self._get_project_id(project_identifier)
+        if not project_id:
+            raise ValueError(f"プロジェクト '{project_identifier}' が見つかりません")
+
+        # リリース情報をDBから取得
+        release_info = self.release_model.get_release_by_criteria(
+            project_id, release_due_date, final_release_name
+        )
+        if not release_info:
+            raise ValueError(
+                f"リリース '{final_release_name}' (期日: {release_due_date}) が見つかりません"
+            )
+
+        if verbose:
+            self.console.print(f"リリース: {final_release_name}")
+            self.console.print(f"期日: {release_due_date}")
+
+        return release_info["id"], "release"
+
+    def _get_project_id(self, project_identifier: str) -> int | None:
+        """プロジェクト識別子からIDを取得"""
+        # project_identifierが数字の場合はIDとして扱う
+        if project_identifier.isdigit():
+            return int(project_identifier)
+
+        # プロジェクト名から検索する場合は、issuesテーブルから推定
+        with self.db_manager.get_connection() as conn:
+            cursor = conn.execute("SELECT DISTINCT project_id FROM issues LIMIT 1")
+            row = cursor.fetchone()
+            return row["project_id"] if row else None
+
+    def _get_issues_by_due_date(
+        self, project_identifier: str, due_date: str, target_date: date
+    ) -> list[sqlite3.Row]:
+        """期日指定で課題を取得（指定日時点）"""
+        project_id = self._get_project_id(project_identifier)
+        if not project_id:
+            return []
+
+        return self.issue_model.get_root_issues_by_due_date(project_id, due_date)
 
     def _get_issues_at_date(
         self, version_id: int, target_date: date
@@ -228,8 +409,8 @@ class SnapshotService:
 
     def _calculate_snapshot_metrics(
         self,
-        version_id: int,
-        version_info: dict[str, Any],
+        target_id: int,
+        target_type: str,
         target_date: date,
         issue_estimates: dict[int, float],
         warnings: list[str],
@@ -241,7 +422,20 @@ class SnapshotService:
         done_statuses = set(self.config.sprint.done_statuses)
 
         # 課題を取得
-        issues = self.issue_model.get_issues_by_version(version_id)
+        if target_type == "version":
+            issues = self.issue_model.get_issues_by_version(target_id)
+        else:  # target_type == "release"
+            # 期日指定の場合は事前に取得済みの課題を使用するため、
+            # ここではissue_estimatesから課題IDを取得してDBから詳細を取得
+            issues = []
+            with self.db_manager.get_connection() as conn:
+                for issue_id in issue_estimates.keys():
+                    cursor = conn.execute(
+                        "SELECT * FROM issues WHERE id = ?", (issue_id,)
+                    )
+                    issue = cursor.fetchone()
+                    if issue:
+                        issues.append(issue)
 
         # ルート課題のみを対象に集計
         scope_hours = 0.0
@@ -258,12 +452,19 @@ class SnapshotService:
         completed_hours = scope_hours - remaining_hours
 
         # 理想線の計算
-        ideal_remaining_hours = self._calculate_ideal_remaining(
-            version_info, target_date, scope_hours
-        )
+        # 理想線の計算（期日指定モードでは初期スコープから均等減少）
+        if target_type == "version":
+            version_info = self._get_version_info(target_id)
+            ideal_remaining_hours = self._calculate_ideal_remaining(
+                version_info, target_date, scope_hours
+            )
+        else:  # target_type == "release"
+            ideal_remaining_hours = self._calculate_ideal_remaining_by_due_date(
+                target_date, scope_hours
+            )
 
-        # ベロシティの計算（簡易実装）
-        velocities = self._calculate_velocities(version_id, target_date)
+        # ベロシティの計算
+        velocities = self._calculate_velocities(target_id, target_type, target_date)
 
         if verbose:
             self.console.print(f"スコープ総量: {scope_hours:.1f}h")
@@ -273,7 +474,8 @@ class SnapshotService:
 
         return {
             "date": target_date.isoformat(),
-            "version_id": version_id,
+            "target_type": target_type,
+            "target_id": target_id,
             "scope_hours": scope_hours,
             "remaining_hours": remaining_hours,
             "completed_hours": completed_hours,
@@ -285,7 +487,8 @@ class SnapshotService:
 
     def _calculate_assignee_snapshots(
         self,
-        version_id: int,
+        target_id: int,
+        target_type: str,
         target_date: date,
         issues: list[sqlite3.Row],
         issue_estimates: dict[int, float],
@@ -330,7 +533,8 @@ class SnapshotService:
                 snapshots.append(
                     {
                         "date": target_date.isoformat(),
-                        "version_id": version_id,
+                        "target_type": target_type,
+                        "target_id": target_id,
                         "assigned_to_id": assignee_id,
                         "assigned_to_name": assignee_names[assignee_id],
                         "scope_hours": stats["scope_hours"],
@@ -400,7 +604,7 @@ class SnapshotService:
         return business_days
 
     def _calculate_velocities(
-        self, version_id: int, target_date: date
+        self, target_id: int, target_type: str, target_date: date
     ) -> dict[str, float]:
         """ベロシティを計算（簡易実装）"""
 
@@ -415,25 +619,36 @@ class SnapshotService:
         }
 
     def _update_metadata(
-        self, version_id: int, target_date: date, scope_hours: float
+        self, target_id: int, target_type: str, target_date: date, scope_hours: float
     ) -> None:
         """メタデータを更新"""
 
         with self.db_manager.get_connection() as conn:
             # 初期スコープ S0 の記録（初回のみ）
+            meta_key_prefix = f"initial_scope_{target_type}_{target_id}"
             cursor = conn.execute(
-                "SELECT value FROM meta WHERE key = ?", (f"initial_scope_{version_id}",)
+                "SELECT value FROM meta WHERE key = ?", (meta_key_prefix,)
             )
             if not cursor.fetchone():
                 conn.execute(
                     "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
-                    (f"initial_scope_{version_id}", str(scope_hours)),
+                    (meta_key_prefix, str(scope_hours)),
                 )
 
             # 最終スナップショット日の更新
+            last_snapshot_key = f"last_snapshot_{target_type}_{target_id}"
             conn.execute(
                 "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
-                (f"last_snapshot_{version_id}", target_date.isoformat()),
+                (last_snapshot_key, target_date.isoformat()),
             )
 
             conn.commit()
+
+    def _calculate_ideal_remaining_by_due_date(
+        self, target_date: date, scope_hours: float
+    ) -> float:
+        """期日指定モードでの理想残工数を計算"""
+        # 期日指定モードでは、初回スナップショット日から期日まで均等減少
+        # 簡易実装として、現在は初期スコープを返す
+        # TODO: 実際の期日と初回日付を考慮した計算を実装
+        return scope_hours

@@ -325,7 +325,7 @@ class TestSnapshotService:
         }
 
         snapshots = snapshot_service._calculate_assignee_snapshots(
-            version_id, target_date, issues, issue_estimates, False
+            version_id, "version", target_date, issues, issue_estimates, False
         )
 
         # ルート課題のみが対象
@@ -420,7 +420,8 @@ class TestSnapshotService:
             )
 
             # 結果検証
-            assert result["version_id"] == 1
+            assert result["target_id"] == 1
+            assert result["target_type"] == "version"
             assert result["target_date"] == "2025-08-05"
             assert result["scope_hours"] == 50.0
             assert result["remaining_hours"] == 50.0  # 進行中

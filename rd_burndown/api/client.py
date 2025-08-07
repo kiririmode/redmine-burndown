@@ -74,6 +74,7 @@ class RedmineClient:
         self,
         project_id: str | None = None,
         version_id: str | None = None,
+        due_date: str | None = None,
         limit: int = 100,
         offset: int = 0,
         include_journals: bool = False,
@@ -87,6 +88,8 @@ class RedmineClient:
             params["project_id"] = project_id
         if version_id:
             params["fixed_version_id"] = version_id
+        if due_date:
+            params["due_date"] = due_date
         if updated_on:
             params["updated_on"] = f">={updated_on}"
             params["set_filter"] = "1"
