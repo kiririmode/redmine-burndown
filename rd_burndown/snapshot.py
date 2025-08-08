@@ -2,6 +2,7 @@
 
 import sqlite3
 import time
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -241,7 +242,8 @@ class SnapshotService:
             version_info = self._get_version_info(version_id)
             self.console.print(f"バージョン: {version_info.get('name')}")
             self.console.print(
-                f"期間: {version_info.get('start_date')} - {version_info.get('due_date')}"
+                f"期間: {version_info.get('start_date')} - "
+                f"{version_info.get('due_date')}"
             )
 
         return version_id, "version"
@@ -273,7 +275,8 @@ class SnapshotService:
         )
         if not release_info:
             raise ValueError(
-                f"リリース '{final_release_name}' (期日: {release_due_date}) が見つかりません"
+                f"リリース '{final_release_name}' "
+                f"(期日: {release_due_date}) が見つかりません"
             )
 
         if verbose:
@@ -337,44 +340,16 @@ class SnapshotService:
             children = [i for i in issues if i["parent_id"] == issue_id]
 
             if not children:
-                # 葉ノード：自身のestimated_hoursを使用
-                estimate = issue["estimated_hours"] or 0.0
+                estimate = self._calculate_leaf_estimate(issue)
             else:
-                # 親ノード：子が全て埋まっていれば子の合計、そうでなければ親の値
-                child_estimates = []
-                all_children_have_estimates = True
-
-                for child in children:
-                    child_estimate = calc_effective_estimate(child["id"])
-                    child_estimates.append(child_estimate)
-
-                    # 子の estimated_hours が NULL の場合（再帰的にチェック）
-                    if not self._has_all_leaf_estimates(child["id"], issue_dict):
-                        all_children_have_estimates = False
-
-                if all_children_have_estimates:
-                    estimate = sum(child_estimates)
-                    if verbose:
-                        self.console.print(
-                            f"課題#{issue_id}: 子の合計 {estimate}h "
-                            f"(子課題: {[c['id'] for c in children]})"
-                        )
-                else:
-                    estimate = issue["estimated_hours"] or 0.0
-                    if verbose:
-                        self.console.print(
-                            f"課題#{issue_id}: 親の値 {estimate}h "
-                            f"(一部の子課題に見積なし)"
-                        )
-
-                    # 親子両方に値がある場合は警告
-                    if issue["estimated_hours"] and any(
-                        c["estimated_hours"] for c in children
-                    ):
-                        warnings.append(
-                            f"課題#{issue_id}: 親子両方に見積もりがあります "
-                            f"(親: {issue['estimated_hours']}h)"
-                        )
+                estimate = self._calculate_parent_estimate(
+                    issue,
+                    children,
+                    issue_dict,
+                    warnings,
+                    verbose,
+                    calc_effective_estimate,
+                )
 
             estimates[issue_id] = estimate
             return estimate
@@ -385,6 +360,70 @@ class SnapshotService:
             calc_effective_estimate(root_issue["id"])
 
         return estimates
+
+    def _calculate_leaf_estimate(self, issue: sqlite3.Row | dict[str, Any]) -> float:
+        """葉ノードの見積もりを計算"""
+        return issue["estimated_hours"] or 0.0
+
+    def _calculate_parent_estimate(
+        self,
+        issue: sqlite3.Row | dict[str, Any],
+        children: Sequence[sqlite3.Row | dict[str, Any]],
+        issue_dict: dict[int, Any],
+        warnings: list[str],
+        verbose: bool,
+        calc_func,
+    ) -> float:
+        """親ノードの見積もりを計算"""
+        child_estimates = [calc_func(child["id"]) for child in children]
+        all_children_have_estimates = all(
+            self._has_all_leaf_estimates(child["id"], issue_dict) for child in children
+        )
+
+        if all_children_have_estimates:
+            return self._handle_children_estimates(
+                issue, children, child_estimates, verbose
+            )
+        else:
+            return self._handle_parent_estimate(issue, children, warnings, verbose)
+
+    def _handle_children_estimates(
+        self,
+        issue: sqlite3.Row | dict[str, Any],
+        children: Sequence[sqlite3.Row | dict[str, Any]],
+        child_estimates: list[float],
+        verbose: bool,
+    ) -> float:
+        """子の見積もりを合計する場合の処理"""
+        estimate = sum(child_estimates)
+        if verbose:
+            self.console.print(
+                f"課題#{issue['id']}: 子の合計 {estimate}h "
+                f"(子課題: {[c['id'] for c in children]})"
+            )
+        return estimate
+
+    def _handle_parent_estimate(
+        self,
+        issue: sqlite3.Row | dict[str, Any],
+        children: Sequence[sqlite3.Row | dict[str, Any]],
+        warnings: list[str],
+        verbose: bool,
+    ) -> float:
+        """親の見積もりを使用する場合の処理"""
+        estimate = issue["estimated_hours"] or 0.0
+        if verbose:
+            self.console.print(
+                f"課題#{issue['id']}: 親の値 {estimate}h (一部の子課題に見積なし)"
+            )
+
+        # 親子両方に値がある場合は警告
+        if issue["estimated_hours"] and any(c["estimated_hours"] for c in children):
+            warnings.append(
+                f"課題#{issue['id']}: 親子両方に見積もりがあります "
+                f"(親: {issue['estimated_hours']}h)"
+            )
+        return estimate
 
     def _has_all_leaf_estimates(
         self, issue_id: int, issue_dict: dict[int, Any]

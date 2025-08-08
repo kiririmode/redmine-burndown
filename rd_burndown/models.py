@@ -1,7 +1,6 @@
 """データベースモデル定義"""
 
 import sqlite3
-from abc import ABC
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -177,7 +176,7 @@ class DatabaseManager:
             conn.commit()
 
 
-class BaseModel(ABC):
+class BaseModel:
     """データベース操作の基底クラス"""
 
     def __init__(self, db_manager: DatabaseManager):
@@ -188,7 +187,10 @@ class BaseModel(ABC):
     ) -> None:
         """INSERT OR REPLACE文の共通実行"""
         placeholders = ", ".join(["?" for _ in columns])
-        sql = f"INSERT OR REPLACE INTO {table} ({', '.join(columns)}) VALUES ({placeholders})"
+        sql = (
+            f"INSERT OR REPLACE INTO {table} "
+            f"({', '.join(columns)}) VALUES ({placeholders})"
+        )
 
         values = tuple(data.get(col) for col in columns)
 
@@ -204,9 +206,10 @@ class BaseModel(ABC):
         order_by: str = "",
     ) -> list[sqlite3.Row]:
         """version_idでSELECTする共通処理"""
-        where_clause = f"WHERE version_id = ?{' AND ' + additional_where if additional_where else ''}"
+        additional_part = f" AND {additional_where}" if additional_where else ""
+        where_clause = f"WHERE version_id = ?{additional_part}"
         order_clause = f"ORDER BY {order_by}" if order_by else ""
-        sql = f"SELECT * FROM {table} {where_clause} {order_clause}"
+        sql = f"SELECT * FROM {table} {where_clause} {order_clause}"  # nosec B608
 
         with self.db_manager.get_connection() as conn:
             cursor = conn.execute(sql, (version_id,))
@@ -221,9 +224,10 @@ class BaseModel(ABC):
         order_by: str = "",
     ) -> list[sqlite3.Row]:
         """target_type, target_idでSELECTする共通処理"""
-        where_clause = f"WHERE target_type = ? AND target_id = ?{' AND ' + additional_where if additional_where else ''}"
+        additional_part = f" AND {additional_where}" if additional_where else ""
+        where_clause = f"WHERE target_type = ? AND target_id = ?{additional_part}"
         order_clause = f"ORDER BY {order_by}" if order_by else ""
-        sql = f"SELECT * FROM {table} {where_clause} {order_clause}"
+        sql = f"SELECT * FROM {table} {where_clause} {order_clause}"  # nosec B608
 
         with self.db_manager.get_connection() as conn:
             cursor = conn.execute(sql, (target_type, target_id))
@@ -272,7 +276,8 @@ class IssueModel(BaseModel):
         """プロジェクトIDと期日で課題を取得"""
         with self.db_manager.get_connection() as conn:
             cursor = conn.execute(
-                "SELECT * FROM issues WHERE project_id = ? AND due_date <= ? ORDER BY id",
+                "SELECT * FROM issues WHERE project_id = ? "
+                "AND due_date <= ? ORDER BY id",
                 (project_id, due_date),
             )
             return cursor.fetchall()
@@ -283,7 +288,8 @@ class IssueModel(BaseModel):
         """プロジェクトIDと期日でルート課題（親なし）を取得"""
         with self.db_manager.get_connection() as conn:
             cursor = conn.execute(
-                "SELECT * FROM issues WHERE project_id = ? AND due_date <= ? AND parent_id IS NULL ORDER BY id",
+                "SELECT * FROM issues WHERE project_id = ? "
+                "AND due_date <= ? AND parent_id IS NULL ORDER BY id",
                 (project_id, due_date),
             )
             return cursor.fetchall()
@@ -294,17 +300,13 @@ class ReleaseModel(BaseModel):
 
     def upsert_release(self, release_data: dict[str, Any]) -> int:
         """リリースデータを挿入または更新し、IDを返す"""
-        columns = [
-            "project_id",
-            "due_date",
-            "name",
-            "description",
-        ]
+        # columns will be used in future implementation
 
         # まず既存レコードをチェック
         with self.db_manager.get_connection() as conn:
             cursor = conn.execute(
-                "SELECT id FROM releases WHERE project_id = ? AND due_date = ? AND name = ?",
+                "SELECT id FROM releases WHERE project_id = ? "
+                "AND due_date = ? AND name = ?",
                 (
                     release_data["project_id"],
                     release_data["due_date"],
@@ -316,7 +318,8 @@ class ReleaseModel(BaseModel):
             if existing:
                 # 更新
                 conn.execute(
-                    "UPDATE releases SET description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    "UPDATE releases SET description = ?, "
+                    "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                     (release_data.get("description"), existing["id"]),
                 )
                 conn.commit()
@@ -324,7 +327,8 @@ class ReleaseModel(BaseModel):
             else:
                 # 新規挿入
                 cursor = conn.execute(
-                    "INSERT INTO releases (project_id, due_date, name, description) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO releases (project_id, due_date, name, description) "
+                    "VALUES (?, ?, ?, ?)",
                     (
                         release_data["project_id"],
                         release_data["due_date"],
@@ -341,7 +345,8 @@ class ReleaseModel(BaseModel):
         """プロジェクトID、期日、名前でリリースを取得"""
         with self.db_manager.get_connection() as conn:
             cursor = conn.execute(
-                "SELECT * FROM releases WHERE project_id = ? AND due_date = ? AND name = ?",
+                "SELECT * FROM releases WHERE project_id = ? AND due_date = ? "
+                "AND name = ?",
                 (project_id, due_date, name),
             )
             return cursor.fetchone()

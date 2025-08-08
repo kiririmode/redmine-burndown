@@ -242,7 +242,10 @@ output:
 ### 7.1 技術スタック
 
 - Python 3.11（実行／開発）
-- uv（パッケージ・仮想環境管理）
+- **uv**（パッケージ・仮想環境管理）
+  - 依存関係は `pyproject.toml` で管理
+  - 開発用依存関係：`uv add --dev <package>`
+  - 実行環境構築：`uv sync`
 - pandas（集計・整形）
 - Plotly（モダン描画・インタラクティブ／kaleidoで PNG 化）
 - 代替：Matplotlib（軽量・PyInstaller 相性良）を静的出力用にフォールバック
@@ -337,3 +340,71 @@ curl -s "http://redmine:3000/projects.json" | jq .
 curl -s "http://redmine:3000/issue_statuses.json" | jq .
 curl -s "http://redmine:3000/issues.json" | jq .
 ```
+
+---
+
+## 11. 開発・品質管理ツール
+
+### 11.1 uv によるパッケージ管理
+
+このプロジェクトは **uv** を使用してPythonの依存関係と仮想環境を管理しています。
+
+```bash
+# 開発環境のセットアップ
+uv sync
+
+# パッケージの追加
+uv add <package-name>
+
+# 開発専用パッケージの追加
+uv add --dev <package-name>
+
+# スクリプトの実行
+uv run <command>
+
+# テストの実行
+uv run pytest
+```
+
+### 11.2 pre-commit による品質管理
+
+コミット前に自動的に以下の品質チェックが実行されます：
+
+#### 基本チェック
+
+- **trailing-whitespace**: 行末空白の除去
+- **end-of-file-fixer**: ファイル末尾改行の修正
+- **check-yaml/toml/json**: 設定ファイルの構文チェック
+- **check-added-large-files**: 大容量ファイルの検出
+- **check-merge-conflict**: マージコンフリクトの検出
+- **debug-statements**: デバッグ文の検出
+
+#### コード品質
+
+- **ruff**: Pythonリンター・フォーマッター（自動修正あり）
+- **pyright**: 静的型チェック（TypeScript系）
+- **bandit**: セキュリティ脆弱性の検出（rd_burndown/配下のみ）
+- **detect-secrets**: 機密情報の検出（.secrets.baselineベースライン使用）
+
+#### 複雑性・品質メトリクス
+
+- **lizard-complexity**: 循環的複雑度チェック（CCN≤10）
+- **code-similarity**: コード重複の検出（リファクタリング推奨）
+- **test-coverage**: テストカバレッジチェック（**85%以上必須**）
+
+#### ドキュメント
+
+- **markdownlint**: Markdownファイルの文法チェック・自動修正
+
+### 11.3 テスト・カバレッジ設定
+
+```yaml
+# pyproject.toml 抜粋
+[tool.pytest.ini_options]
+addopts = "--cov=rd_burndown --cov-report=term-missing --cov-fail-under=85"
+
+[tool.coverage.report]
+fail_under = 85  # 85%未満でCI失敗
+```
+
+カバレッジレポートは `htmlcov/` ディレクトリに出力され、詳細な未カバー箇所を確認できます。

@@ -54,35 +54,43 @@ def _create_info_table(
             value = item.get(col["key"], "")
             if col.get("truncate"):
                 value = value[:50] + ("..." if len(value) > 50 else "")
-            if col.get("transform"):
-                value = col["transform"](value)
+            transform_func = col.get("transform")
+            if transform_func and callable(transform_func):
+                value = transform_func(value)
             row.append(str(value))
         table.add_row(*row)
 
     console.print(table)
 
 
-def _display_projects_info(projects: list, projects_count: int, verbose: bool) -> None:
-    """プロジェクト情報を表示"""
+def _display_info_summary(
+    items: list,
+    item_count: int,
+    item_type: str,
+    verbose: bool,
+    columns: list[dict],
+) -> None:
+    """情報サマリーを表示（汎用）"""
     if not verbose:
-        console.print(f"\n[bold]プロジェクト数:[/bold] {projects_count}")
+        console.print(f"\n[bold]{item_type}数:[/bold] {item_count}")
         return
 
+    _create_info_table(item_type, items, columns, item_count)
+
+
+def _display_projects_info(projects: list, projects_count: int, verbose: bool) -> None:
+    """プロジェクト情報を表示"""
     columns = [
         {"name": "ID", "key": "id", "style": "yellow"},
         {"name": "識別子", "key": "identifier", "style": "blue"},
         {"name": "名前", "key": "name", "style": "green"},
         {"name": "説明", "key": "description", "truncate": True},
     ]
-    _create_info_table("プロジェクト", projects, columns, projects_count)
+    _display_info_summary(projects, projects_count, "プロジェクト", verbose, columns)
 
 
 def _display_statuses_info(statuses: list, verbose: bool) -> None:
     """ステータス情報を表示"""
-    if not verbose:
-        console.print(f"\n[bold]課題ステータス数:[/bold] {len(statuses)}")
-        return
-
     columns = [
         {"name": "ID", "key": "id", "style": "yellow"},
         {"name": "名前", "key": "name", "style": "blue"},
@@ -93,7 +101,7 @@ def _display_statuses_info(statuses: list, verbose: bool) -> None:
             "transform": lambda x: "✓" if x else "",
         },
     ]
-    _create_info_table("課題ステータス", statuses, columns, len(statuses))
+    _display_info_summary(statuses, len(statuses), "課題ステータス", verbose, columns)
 
 
 def _handle_connection_error(error: Exception) -> None:

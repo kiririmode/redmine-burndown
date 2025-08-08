@@ -433,3 +433,50 @@ class TestSnapshotService:
             # 保存メソッドが呼ばれたことを確認
             snapshot_service.snapshot_model.save_snapshot.assert_called_once()
             snapshot_service.snapshot_model.save_assignee_snapshot.assert_called_once()
+
+    def test_create_snapshot_with_progress(self, snapshot_service):
+        """プログレス付きcreate_snapshotのテスト"""
+        from rich.progress import Progress
+
+        progress = MagicMock(spec=Progress)
+        task_id = "test_task"
+
+        # データベースモックの設定
+        mock_conn = MagicMock()
+        context_manager = snapshot_service.db_manager.get_connection.return_value
+        context_manager.__enter__.return_value = mock_conn
+        mock_conn.execute.side_effect = [
+            MagicMock(fetchone=lambda: {"id": 1}),
+            MagicMock(
+                fetchone=lambda: {
+                    "id": 1,
+                    "start_date": "2025-08-01",
+                    "due_date": "2025-08-08",
+                }
+            ),
+            MagicMock(fetchone=lambda: None),
+            MagicMock(),
+            MagicMock(),
+        ]
+
+        snapshot_service.issue_model.get_issues_by_version = MagicMock(return_value=[])
+        snapshot_service._calculate_ideal_remaining = MagicMock(return_value=0.0)
+        snapshot_service._calculate_velocities = MagicMock(
+            return_value={"avg": 0.0, "max": 0.0, "min": 0.0}
+        )
+
+        result = snapshot_service.create_snapshot(
+            "project1", "Sprint-2025.01", progress=progress, task_id=task_id
+        )
+
+        # プログレス更新が呼ばれたことを確認
+        assert progress.update.called
+        assert result["target_id"] == 1
+
+    def test_resolve_target_no_mode(self, snapshot_service):
+        """モード未指定エラーのテスト"""
+        with pytest.raises(
+            ValueError,
+            match="version_name または release_due_date のいずれかを指定してください",
+        ):
+            snapshot_service.create_snapshot("project1")
