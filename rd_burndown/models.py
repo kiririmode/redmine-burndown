@@ -60,6 +60,7 @@ class DatabaseManager:
                     id INTEGER PRIMARY KEY,
                     project_id INTEGER NOT NULL,
                     version_id INTEGER,
+                    release_id INTEGER,
                     parent_id INTEGER,
                     subject TEXT NOT NULL,
                     status_name TEXT NOT NULL,
@@ -72,6 +73,7 @@ class DatabaseManager:
                     due_date TEXT,
                     last_seen_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (version_id) REFERENCES versions (id),
+                    FOREIGN KEY (release_id) REFERENCES releases (id),
                     FOREIGN KEY (parent_id) REFERENCES issues (id)
                 )
             """)
@@ -130,10 +132,21 @@ class DatabaseManager:
                 )
             """)
 
+            # カラム追加（既存データベース向け）
+            try:
+                conn.execute("ALTER TABLE issues ADD COLUMN release_id INTEGER")
+            except sqlite3.OperationalError:
+                # カラムが既に存在する場合は無視
+                pass
+
             # インデックス作成
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_issues_version_id "
                 "ON issues (version_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_issues_release_id "
+                "ON issues (release_id)"  
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_issues_parent_id ON issues (parent_id)"
@@ -243,6 +256,7 @@ class IssueModel(BaseModel):
             "id",
             "project_id",
             "version_id",
+            "release_id",
             "parent_id",
             "subject",
             "status_name",

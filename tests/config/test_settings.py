@@ -96,7 +96,8 @@ class TestLoadConfig:
         assert config.sprint.timezone == "Asia/Tokyo"
 
     @patch.dict(os.environ, {"REDMINE_API_KEY": "env-api-key"})
-    def test_load_config_with_env_var(self):
+    @patch("pathlib.Path.exists", return_value=False)
+    def test_load_config_with_env_var(self, mock_exists):
         """環境変数からのAPI Key読み込みテスト"""
         config = load_config()
         assert config.redmine.api_key == "env-api-key"
@@ -147,7 +148,8 @@ sprint:
         assert config.redmine.api_key == "home-api-key"
         assert config.sprint.timezone == "UTC"
 
-    def test_load_config_no_config_file(self):
+    @patch("pathlib.Path.exists", return_value=False)
+    def test_load_config_no_config_file(self, mock_exists):
         """設定ファイルがない場合のテスト"""
         config = load_config(None)
 

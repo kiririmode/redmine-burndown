@@ -72,6 +72,7 @@ class DataSyncService:
                 raise ValueError("release_due_date is required for release mode")
             issues_synced, journals_synced = self._perform_issues_sync_by_due_date(
                 project_data["id"],
+                target_id,  # release_id
                 release_due_date,
                 full_sync,
                 verbose,
@@ -216,6 +217,7 @@ class DataSyncService:
     def _perform_issues_sync_by_due_date(
         self,
         project_id: int,
+        release_id: int,
         due_date: str,
         full_sync: bool,
         verbose: bool,
@@ -226,7 +228,7 @@ class DataSyncService:
         if progress and task_id:
             progress.update(task_id, description="期日指定課題データ同期中...")
 
-        return self._sync_issues_by_due_date(project_id, due_date, full_sync, verbose)
+        return self._sync_issues_by_due_date(project_id, release_id, due_date, full_sync, verbose)
 
     def _save_version(self, version_data: dict[str, Any], project_id: int) -> None:
         """バージョン情報をデータベースに保存"""
@@ -311,7 +313,7 @@ class DataSyncService:
         return issues_count, journals_count
 
     def _sync_issues_by_due_date(
-        self, project_id: int, due_date: str, full_sync: bool, verbose: bool
+        self, project_id: int, release_id: int, due_date: str, full_sync: bool, verbose: bool
     ) -> tuple[int, int]:
         """期日指定で課題データを同期"""
         issues_count = 0
@@ -344,11 +346,12 @@ class DataSyncService:
 
             # 各課題を処理
             for issue in issues:
-                # due_dateを追加してissue_dataを保存
-                issue_with_due_date = issue.copy()
-                issue_with_due_date["due_date"] = issue.get("due_date")
+                # due_dateとrelease_idを追加してissue_dataを保存
+                issue_with_release = issue.copy()
+                issue_with_release["due_date"] = issue.get("due_date")
+                issue_with_release["release_id"] = release_id
 
-                self._save_issue(issue_with_due_date, verbose)
+                self._save_issue(issue_with_release, verbose)
                 issues_count += 1
 
                 # ジャーナル（変更履歴）を処理
@@ -398,6 +401,7 @@ class DataSyncService:
             "id": issue_data["id"],
             "project_id": issue_data["project"]["id"],
             "version_id": issue_data.get("fixed_version", {}).get("id"),
+            "release_id": issue_data.get("release_id"),
             "parent_id": issue_data.get("parent", {}).get("id"),
             "subject": issue_data["subject"],
             "status_name": issue_data["status"]["name"],

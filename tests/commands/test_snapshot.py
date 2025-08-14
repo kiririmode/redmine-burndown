@@ -145,16 +145,21 @@ class TestSnapshotCreateCommand:
         call_args = mock_snapshot_service.create_snapshot.call_args[1]
         assert call_args["target_date"] == date(2025, 8, 1)
 
-    def test_create_snapshot_invalid_date_format(self, runner):
+    @patch("rd_burndown.commands.snapshot.load_config")
+    def test_create_snapshot_invalid_date_format(self, mock_load_config, runner):
         """異常系: 不正な日付フォーマット"""
+        # 設定ファイルをモック（version のみ指定）
+        config = MagicMock()
+        config.redmine.project_identifier = "test-project"
+        config.redmine.version_name = "test-version"
+        config.redmine.release_due_date = None  # due_date は指定しない
+        config.redmine.release_name = None
+        mock_load_config.return_value = config
+
         result = runner.invoke(
             snapshot_command,
             [
                 "create",
-                "--project",
-                "test-project",
-                "--version",
-                "test-version",
                 "--at",
                 "invalid-date",
             ],
@@ -372,3 +377,164 @@ class TestSnapshotListCommand:
         assert result.exit_code == 0
         assert "スナップショットが見つかりません" in result.stdout
         assert "まず `rd-burndown snapshot create` を実行してください" in result.stdout
+
+    @patch("rd_burndown.commands.snapshot.load_config")
+    @patch("rd_burndown.commands.snapshot.DatabaseManager")
+    @patch("rd_burndown.commands.snapshot.SnapshotService")
+    def test_create_snapshot_due_date_mode(
+        self,
+        mock_snapshot_service_class,
+        mock_db_manager_class,
+        mock_load_config,
+        runner,
+    ):
+        """期日指定モードでのスナップショット作成テスト"""
+        # 設定ファイルをモック（期日指定）
+        config = MagicMock()
+        config.redmine.project_identifier = "test-project"
+        config.redmine.version_name = None
+        config.redmine.release_due_date = "2025-12-31"
+        config.redmine.release_name = "Release v2.0"
+        mock_load_config.return_value = config
+
+        # データベースのモック
+        mock_db_manager = MagicMock()
+        mock_db_manager_class.return_value = mock_db_manager
+
+        # スナップショットサービスのモック
+        mock_snapshot_service = MagicMock()
+        mock_snapshot_service.create_snapshot.return_value = {
+            "target_id": 1,
+            "target_type": "release",
+            "scope_hours": 200.0,
+            "remaining_hours": 150.0,
+            "completed_hours": 50.0,
+            "ideal_remaining_hours": 120.0,
+            "assignee_count": 5,
+            "duration": 0.15,
+        }
+        mock_snapshot_service_class.return_value = mock_snapshot_service
+
+        result = runner.invoke(
+            snapshot_command,
+            [
+                "create",
+                "--project",
+                "test-project", 
+                "--due-date",
+                "2025-12-31",
+                "--name",
+                "Release v2.0",
+                "--at",
+                "2025-08-15",
+            ],
+        )
+
+        # 検証
+        assert result.exit_code == 0
+        assert "スナップショット生成開始" in result.stdout
+        assert "モード: 期日指定" in result.stdout
+        assert "期日: 2025-12-31" in result.stdout
+        assert "対象日: 2025-08-15" in result.stdout
+        assert "対象ID: 1 (release)" in result.stdout
+        assert "スコープ総量: 200.0h" in result.stdout
+        assert "残工数: 150.0h" in result.stdout
+
+    @patch("rd_burndown.commands.snapshot.load_config")
+    @patch("rd_burndown.commands.snapshot.DatabaseManager")
+    def test_list_snapshots_due_date_mode(
+        self, mock_db_manager_class, mock_load_config, runner
+    ):
+        """期日指定モードでのスナップショット一覧テスト"""
+        # 設定ファイルをモック（期日指定）
+        config = MagicMock()
+        config.redmine.project_identifier = "test-project"
+        config.redmine.version_name = None
+        config.redmine.release_due_date = "2025-12-31"
+        config.redmine.release_name = "Release v2.0"
+        mock_load_config.return_value = config
+
+        mock_db_manager = MagicMock()
+        mock_db_manager_class.return_value = mock_db_manager
+
+        # データベースのモック
+        mock_conn = MagicMock()
+        mock_db_manager.get_connection.return_value.__enter__.return_value = mock_conn
+
+        mock_conn.execute.side_effect = [
+            # リリースID取得
+            MagicMock(fetchone=lambda: {"id": 1}),
+            # スナップショット一覧取得
+            MagicMock(
+                fetchall=lambda: [
+                    {
+                        "date": "2025-08-15",
+                        "target_type": "release",
+                        "target_id": 1,
+                        "scope_hours": 200.0,
+                        "remaining_hours": 150.0,
+                        "completed_hours": 50.0,
+                        "ideal_remaining_hours": 120.0,
+                        "v_avg": 5.0,
+                        "v_max": 12.0,
+                        "v_min": 2.0,
+                    },
+                    {
+                        "date": "2025-08-14",
+                        "target_type": "release", 
+                        "target_id": 1,
+                        "scope_hours": 200.0,
+                        "remaining_hours": 160.0,
+                        "completed_hours": 40.0,
+                        "ideal_remaining_hours": 130.0,
+                        "v_avg": 4.5,
+                        "v_max": 10.0,
+                        "v_min": 1.5,
+                    },
+                ]
+            ),
+        ]
+
+        # コマンド実行
+        result = runner.invoke(
+            snapshot_command,
+            [
+                "list",
+                "--project",
+                "test-project",
+                "--due-date", 
+                "2025-12-31",
+                "--name",
+                "Release v2.0",
+            ],
+        )
+
+        # 検証
+        assert result.exit_code == 0
+        assert "スナップショット一覧" in result.stdout
+        assert "モード: 期日指定" in result.stdout
+        assert "期日: 2025-12-31" in result.stdout
+        assert "2025-08-15" in result.stdout
+        assert "2025-08-14" in result.stdout
+        assert "スコープ: 200.0h" in result.stdout
+        assert "残工数: 150.0h" in result.stdout
+        assert "ベロシティ(平均): 5.0h/日" in result.stdout
+
+    @patch("rd_burndown.commands.snapshot.load_config")
+    def test_create_snapshot_both_version_and_due_date_error(
+        self, mock_load_config, runner
+    ):
+        """バージョンと期日の同時指定エラーのテスト"""
+        # 設定ファイルをモック（両方指定）
+        config = MagicMock()
+        config.redmine.project_identifier = "test-project"
+        config.redmine.version_name = "Sprint-2025.01"
+        config.redmine.release_due_date = "2025-12-31"
+        config.redmine.release_name = "Release v2.0"
+        mock_load_config.return_value = config
+
+        result = runner.invoke(snapshot_command, ["create"])
+
+        assert result.exit_code == 1
+        assert "--version と --due-date は同時に指定できません" in result.stdout
+

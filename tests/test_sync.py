@@ -515,7 +515,7 @@ class TestDataSyncService:
         }
 
         issues_count, journals_count = sync_service._sync_issues_by_due_date(
-            1, "2025-02-15", True, False
+            1, 1, "2025-02-15", True, False
         )
 
         assert issues_count == 2
@@ -559,7 +559,7 @@ class TestDataSyncService:
         }
 
         issues_synced, journals_synced = sync_service._perform_issues_sync_by_due_date(
-            1, "2025-02-20", True, False, None, None
+            1, 1, "2025-02-20", True, False, None, None
         )
 
         assert issues_synced == 1

@@ -253,3 +253,163 @@ class TestSyncCommand:
         assert result.exit_code == 0
         assert "指定されたバージョンのデータが見つかりません" in result.stdout
         assert "rd-burndown sync data" in result.stdout
+
+    @patch("rd_burndown.commands.sync.DataSyncService")
+    @patch("rd_burndown.commands.sync.RedmineClient")
+    @patch("rd_burndown.commands.sync.load_config")
+    def test_sync_data_due_date_mode(
+        self,
+        mock_load_config,
+        mock_client_class,
+        mock_service_class,
+        runner,
+        temp_db,
+        mock_sync_service,
+    ):
+        """期日指定モードでのデータ同期テスト"""
+        # リリースモード用にmock_sync_serviceを更新
+        mock_sync_service.sync_project_data.return_value = {
+            "target_id": 1,
+            "target_type": "release",
+            "issues_synced": 10,
+            "journals_synced": 5,
+            "duration": 2.34,
+            "warnings": [],
+        }
+
+        # モック設定
+        mock_config = MagicMock()
+        mock_config.redmine.project_identifier = "test-project"
+        mock_config.redmine.version_name = None
+        mock_config.redmine.release_due_date = "2025-12-31"
+        mock_config.redmine.release_name = "Release v2.0"
+        mock_load_config.return_value = mock_config
+
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client_class.return_value = mock_client
+
+        mock_service_class.return_value = mock_sync_service
+
+        # コマンド実行
+        result = runner.invoke(
+            sync_command,
+            [
+                "data",
+                "--project",
+                "test-project",
+                "--due-date",
+                "2025-12-31",
+                "--name",
+                "Release v2.0",
+                "--db",
+                temp_db,
+            ],
+        )
+
+        # 結果確認
+        assert result.exit_code == 0
+        assert "データ同期開始" in result.stdout
+        assert "モード: 期日指定" in result.stdout
+        assert "期日: 2025-12-31" in result.stdout
+        assert "同期完了" in result.stdout
+        assert "対象ID: 1 (release)" in result.stdout
+        assert "課題数: 10" in result.stdout
+
+    @patch("rd_burndown.commands.sync.load_config")
+    def test_sync_data_both_version_and_due_date(self, mock_load_config, runner):
+        """バージョンと期日の同時指定エラーのテスト"""
+        mock_config = MagicMock()
+        mock_config.redmine.project_identifier = "test-project"
+        mock_config.redmine.version_name = "Sprint-2025.01"
+        mock_config.redmine.release_due_date = "2025-12-31"
+        mock_config.redmine.release_name = "Release v2.0"
+        mock_load_config.return_value = mock_config
+
+        result = runner.invoke(sync_command, ["data"])
+
+        assert result.exit_code == 1
+        assert "--version と --due-date は同時に指定できません" in result.stdout
+
+    @patch("rd_burndown.commands.sync.load_config")
+    def test_sync_status_release_mode_with_data(self, mock_load_config, runner, temp_db):
+        """期日指定モードでの同期状況確認（データあり）のテスト"""
+        mock_config = MagicMock()
+        mock_config.redmine.project_identifier = "14"  # 数値として設定
+        mock_config.redmine.version_name = None
+        mock_config.redmine.release_due_date = "2025-12-31"
+        mock_config.redmine.release_name = "Release v2.0"
+        mock_load_config.return_value = mock_config
+
+        # テストデータをDBに挿入
+        db_manager = DatabaseManager(temp_db)
+        with db_manager.get_connection() as conn:
+            # リリースを挿入
+            conn.execute(
+                """
+                INSERT INTO releases (id, project_id, due_date, name, description)
+                VALUES (1, 14, '2025-12-31', 'Release v2.0', 'Test release')
+                """
+            )
+            # 課題を挿入
+            conn.execute(
+                """
+                INSERT INTO issues (id, project_id, release_id, subject, status_name,
+                                  estimated_hours, assigned_to_name, last_seen_at)
+                VALUES (200, 14, 1, 'リリース課題', '進行中', 16.0, '佐藤花子',
+                        '2025-01-01T15:00:00Z')
+                """
+            )
+            conn.commit()
+
+        result = runner.invoke(
+            sync_command,
+            [
+                "status",
+                "--project",
+                "14",
+                "--due-date",
+                "2025-12-31",
+                "--name",
+                "Release v2.0",
+                "--db",
+                temp_db,
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "同期状況確認" in result.stdout
+        assert "モード: 期日指定" in result.stdout
+        assert "リリースID: 1" in result.stdout
+        assert "課題数: 1" in result.stdout
+        assert "担当者別統計:" in result.stdout
+        assert "佐藤花子: 1件 (16.0h)" in result.stdout
+
+    @patch("rd_burndown.commands.sync.load_config")
+    def test_sync_status_release_mode_no_data(self, mock_load_config, runner, temp_db):
+        """期日指定モードでの同期状況確認（データなし）のテスト"""
+        mock_config = MagicMock()
+        mock_config.redmine.project_identifier = "test-project"
+        mock_config.redmine.version_name = None
+        mock_config.redmine.release_due_date = "2025-12-31"
+        mock_config.redmine.release_name = "Release v2.0"
+        mock_load_config.return_value = mock_config
+
+        result = runner.invoke(
+            sync_command,
+            [
+                "status",
+                "--project",
+                "test-project",
+                "--due-date",
+                "2025-12-31",
+                "--name",
+                "Release v2.0",
+                "--db",
+                temp_db,
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "指定されたリリースのデータが見つかりません" in result.stdout
+        assert "rd-burndown sync data" in result.stdout

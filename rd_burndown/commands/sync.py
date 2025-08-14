@@ -224,48 +224,109 @@ def sync_status(
 
     try:
         with db_manager.get_connection() as conn:
-            # バージョン情報を取得
-            cursor = conn.execute(
-                """
-                SELECT v.*,
-                       COUNT(i.id) as issue_count,
-                       MAX(i.last_seen_at) as last_sync_at
-                FROM versions v
-                LEFT JOIN issues i ON v.id = i.version_id
-                WHERE v.name = ?
-                GROUP BY v.id
-                """,
-                (version_name,),
-            )
-            version_info = cursor.fetchone()
+            if version_name:
+                # Version指定モード
+                cursor = conn.execute(
+                    """
+                    SELECT v.*,
+                           COUNT(i.id) as issue_count,
+                           MAX(i.last_seen_at) as last_sync_at
+                    FROM versions v
+                    LEFT JOIN issues i ON v.id = i.version_id
+                    WHERE v.name = ?
+                    GROUP BY v.id
+                    """,
+                    (version_name,),
+                )
+                target_info = cursor.fetchone()
+                target_type = "version"
+                
+                if target_info:
+                    console.print(f"バージョンID: {target_info['id']}")
+                    console.print(f"プロジェクトID: {target_info['project_id']}")
+                    console.print(f"開始日: {target_info['start_date'] or 'なし'}")
+                    console.print(f"期限日: {target_info['due_date'] or 'なし'}")
+                    
+                    # 担当者別統計のクエリ条件
+                    where_clause = "WHERE version_id = ?"
+                    where_params = (target_info["id"],)
+                    
+            elif release_due_date:
+                # 期日指定モード（Release）
+                # project_idを数値に変換を試みる
+                try:
+                    numeric_project_id = int(project_id)
+                except ValueError:
+                    # プロジェクト識別子の場合、とりあえず文字列として扱う
+                    # 実際のDBにプロジェクトIDが格納されているかを確認する必要がある
+                    numeric_project_id = None
+                
+                if numeric_project_id:
+                    cursor = conn.execute(
+                        """
+                        SELECT r.*,
+                               COUNT(i.id) as issue_count,
+                               MAX(i.last_seen_at) as last_sync_at
+                        FROM releases r
+                        LEFT JOIN issues i ON r.id = i.release_id
+                        WHERE r.due_date = ? AND r.project_id = ?
+                        GROUP BY r.id
+                        """,
+                        (release_due_date, numeric_project_id),
+                    )
+                else:
+                    # プロジェクト識別子の場合、issuesテーブルから該当するproject_idを探す
+                    cursor = conn.execute(
+                        """
+                        SELECT r.*,
+                               COUNT(i.id) as issue_count,
+                               MAX(i.last_seen_at) as last_sync_at
+                        FROM releases r
+                        LEFT JOIN issues i ON r.id = i.release_id
+                        WHERE r.due_date = ? AND r.project_id IN (
+                            SELECT DISTINCT project_id FROM issues LIMIT 1
+                        )
+                        GROUP BY r.id
+                        """,
+                        (release_due_date,),
+                    )
+                target_info = cursor.fetchone()
+                target_type = "release"
+                
+                if target_info:
+                    console.print(f"リリースID: {target_info['id']}")
+                    console.print(f"プロジェクトID: {target_info['project_id']}")
+                    console.print(f"期限日: {target_info['due_date']}")
+                    console.print(f"名前: {target_info['name']}")
+                    console.print(f"説明: {target_info['description'] or 'なし'}")
+                    
+                    # 担当者別統計のクエリ条件
+                    where_clause = "WHERE release_id = ?"
+                    where_params = (target_info["id"],)
 
-            if not version_info:
+            if not target_info:
                 console.print(
-                    "[yellow]指定されたバージョンのデータが見つかりません[/yellow]"
+                    f"[yellow]指定された{'バージョン' if version_name else 'リリース'}のデータが見つかりません[/yellow]"
                 )
                 console.print("まず `rd-burndown sync data` を実行してください")
                 return
 
-            console.print(f"バージョンID: {version_info['id']}")
-            console.print(f"プロジェクトID: {version_info['project_id']}")
-            console.print(f"開始日: {version_info['start_date'] or 'なし'}")
-            console.print(f"期限日: {version_info['due_date'] or 'なし'}")
-            console.print(f"課題数: {version_info['issue_count']}")
-            console.print(f"最終同期: {version_info['last_sync_at'] or 'なし'}")
+            console.print(f"課題数: {target_info['issue_count']}")
+            console.print(f"最終同期: {target_info['last_sync_at'] or 'なし'}")
 
             # 担当者別統計
             cursor = conn.execute(
-                """
+                f"""
                 SELECT assigned_to_name,
                        COUNT(*) as count,
                        SUM(CASE WHEN estimated_hours IS NOT NULL
                                 THEN estimated_hours ELSE 0 END) as total_hours
                 FROM issues
-                WHERE version_id = ?
+                {where_clause}
                 GROUP BY assigned_to_name
                 ORDER BY total_hours DESC
                 """,
-                (version_info["id"],),
+                where_params,
             )
             assignee_stats = cursor.fetchall()
 
