@@ -220,3 +220,4 @@ config.yaml
 *.png
 *.html
 *.csv
+rd-burndown.yaml
